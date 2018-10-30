@@ -247,6 +247,13 @@ class DeviceEdit(DeviceFrame):
         self.bEdit = Button(self.fDeviceLine, text = "Edit", width=12, command = self.open)
         self.bEdit.pack(side=LEFT,padx=10,pady=1)
         self.ui_devices_dict = {
+
+
+        DEVICE_TYPE_SERIAL: {
+            'param':self.param_device_serial,
+            'command': self.send_device_serial,
+            'data':self.data_update_device_serial
+            },
         DEVICE_TYPE_BINARY_SENSOR: {
             'param':self.param_device_unknown,
             'command': self.send_device_unknown,
@@ -344,6 +351,10 @@ class DeviceEdit(DeviceFrame):
         ui_log.debug("UI","data_update_device_unknown %s"%(binstr_to_hexstr(data)))
         self.pData.set(binstr_to_hexstr(data))
 
+    def data_update_device_serial(self,data):
+        ui_log.debug("UI","data_update_device_serial %s"%(binstr_to_hexstr(data)))
+        self.pData.set(binstr_to_hexstr(data))
+
     def data_update_device_binary_sensor(self,data):
         # parse binary_sensor data
         ui_log.debug("UI","data_update_device_binary_sensor %s"%(binstr_to_hexstr(data)))
@@ -398,9 +409,17 @@ class DeviceEdit(DeviceFrame):
         device_data = string_to_array(hexdata)
         client_lmp.command_lmp_device_data_set(self.module_uid,self.device_id,device_data)
 
+    def send_device_serial(self):
+        ui_log.debug("UI","send")
+        device_data = string_to_array(self.pDataToSend.get())
+        client_lmp.command_lmp_device_data_set(self.module_uid,self.device_id,device_data)
+
     def param_device_level_output(self,widget):
         self.pAction = Param(widget,"OnOff [0,1]",TOP,1,"1")
         self.pLevel = Param(widget,"Value [0,100]",TOP,3,"100")
+
+    def param_device_serial(self,widget):
+        self.pDataToSend = Param(widget,"Data",TOP,40,"")
 
     def param_func(self,widget):
         type_id = client_lmp.device_get(self.module_uid,self.device_id).type_id

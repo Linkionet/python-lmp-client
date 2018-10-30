@@ -335,7 +335,7 @@ class LmpSerial(threading.Thread):
                                 self.on_device_data_event_cb(updated_module,device,payload)
 
                 elif event == SERIAL_EVT_REMOTE_DEVICE_DATA_STATUS_IND:
-                    src_addr, device_id = unpack('<H', frame_str[4:7])
+                    src_addr, device_id = unpack('<HB', frame_str[4:7])
                     payload = frame_str[7:-1]
                     mylog("SERIAL_EVT_REMOTE_DEVICE_DATA_STATUS_IND from %04X : %s"%(src_addr,debughex(payload)))
                     updated_module = self.module_get_by_lmp_addr(src_addr)
