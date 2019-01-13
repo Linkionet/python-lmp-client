@@ -54,6 +54,7 @@ DEVICE_TYPE_LEVEL_OUTPUT = 400 # level-output, class level-output, actuator
 DEVICE_TYPE_DIMMABLE_LIGHT = 401 # dimmable-light, class dimmable-light, actuator
 DEVICE_TYPE_COLOR_DIMMABLE_LIGHT = 402 # color-dimmable-light, class color-dimmable-light, actuator
 DEVICE_TYPE_COLOR_WHITE_DIMMABLE_LIGHT = 403 # color-white-dimmable-light, class color-white-dimmable-light, actuator
+DEVICE_TYPE_TUNABLE_WHITE_LIGHT = 404 # tunable-white-light, class tunable-white-light, actuator
 DEVICE_TYPE_SHADE_CONTROLLER = 410 # shade-controller, class level-output, actuator
 DEVICE_TYPE_DOOR_LOCK = 411 # door-lock, class binary-output, actuator
 DEVICE_TYPE_SERIAL = 420 # serial, class string, actuator
@@ -108,6 +109,7 @@ DEVICE_TYPE_LEVEL_OUTPUT : 'level-output',
 DEVICE_TYPE_DIMMABLE_LIGHT : 'dimmable-light',
 DEVICE_TYPE_COLOR_DIMMABLE_LIGHT : 'color-dimmable-light',
 DEVICE_TYPE_COLOR_WHITE_DIMMABLE_LIGHT : 'color-white-dimmable-light',
+DEVICE_TYPE_TUNABLE_WHITE_LIGHT : 'tunable-white-light',
 DEVICE_TYPE_SHADE_CONTROLLER : 'shade-controller',
 DEVICE_TYPE_DOOR_LOCK : 'door-lock',
 DEVICE_TYPE_SERIAL : 'serial',

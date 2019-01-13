@@ -82,11 +82,11 @@ class LocalModuleFrame() :
         self.fLocalButtons = Frame(self.fLocal,borderwidth=1)
         self.fLocalButtons.pack(fill=BOTH, expand=False,side=TOP,padx=5,pady=5)
 
-        self.pMac = Param(self.fLocalConfig,"MAC addr",TOP,12,"")
+        self.pMac = Param(self.fLocalConfig,"MAC addr",TOP,14,"")
         self.pLMPAddr = Param(self.fLocalConfig,"LMP addr",TOP,4,"")
-        self.pManufacturer = Param(self.fLocalConfig,"Manufacturer",TOP,8,"")
-        self.pModel = Param(self.fLocalConfig,"Model",TOP,8,"")
-        self.pName = Param(self.fLocalConfig,"Name",TOP,8,"")
+        self.pManufacturer = Param(self.fLocalConfig,"Manufacturer",TOP,18,"")
+        self.pModel = Param(self.fLocalConfig,"Model",TOP,18,"")
+        self.pName = Param(self.fLocalConfig,"Name",TOP,10,"")
         self.pSWVersion = Param(self.fLocalConfig,"SW version",TOP,16,"")
         self.pHWVersion = Param(self.fLocalConfig,"HW version",TOP,16,"")
         self.pType = Param(self.fLocalConfig,"Type",TOP,20,"")
@@ -108,7 +108,7 @@ class LocalModuleFrame() :
         self.bReset.pack(side=TOP,padx=10,pady=1)
         self.bUnregister = Button(self.fLocalButtons, text = "Unregister", width=12, command = self.cUnregister)
         self.bUnregister.pack(side=TOP,padx=10,pady=1)
-        self.bDiscover = Button(self.fLocalButtons, text = "Discover", width=12, command = self.cDiscover)
+        self.bDiscover = Button(self.fLocalButtons, text = "Modules info", width=12, command = self.cDiscover)
         self.bDiscover.pack(side=TOP,padx=10,pady=1)
 
     def ui_device_get(self,device_id):
@@ -171,7 +171,7 @@ class LocalModuleFrame() :
         client_lmp.command_local_unregister()
 
     def cDiscover(self):
-        ui_log.debug("UI","module unregister")
+        ui_log.debug("UI","modules info")
         client_lmp.command_remote_module_info()
 
 class ModulesFrame():

@@ -24,6 +24,9 @@ def fcs_calc(payload):
 def timestamp_now():
     return time.localtime()
 
+def timestamp_ticks_now():
+    return int(time.time())
+
 def timestamp_str( timestamp ):
     return time.strftime("%Y-%m-%d %H:%M:%S",time.localtime(timestamp))
 
