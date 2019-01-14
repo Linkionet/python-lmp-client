@@ -12,8 +12,12 @@ This interface written in Python-Tk provides some way to :
 
 ## Preparation
 - connect your Linkio dongle (see the complete list of compatible products below),
-- download the Linkio App on your smartphone,
-- run the GUI in a terminal : 
+- download the Linkio App on your smartphone from the stores :
+    - https://play.google.com/store/apps/details?id=net.linkio.mainapp
+    - https://itunes.apple.com/FR/app/id1280853273
+
+
+- run the GUI in a terminal :
 ```
 ./lmpclient.py
 ```
