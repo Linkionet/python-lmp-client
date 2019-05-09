@@ -58,10 +58,13 @@ lmp_roles_str_dict = {
 
 
 LMP_COMMAND_DEVICE_DATA_SET = 0x41 #Set new device data
+
+LMP_STATUS_ACK = 0x80 # Acknowledge status */
 LMP_STATUS_NETWORK = 0x82 # Network status */
 LMP_STATUS_DEVICE_INFO = 0x91 # Device info status change */
 LMP_EVENT_DEVICE_DATA = 0x92 # New device data event */
 LMP_STATUS_DEVICE_DATA = 0x93 # Device data status change */
+LMP_PARAM_MODULE_REFERENCE = 0xAF # Module Linkio full reference */
 LMP_PARAM_MAC_ADDRESS = 0xB0 # MAC address parameter */
 LMP_PARAM_SHORT_ADDRESS = 0xB1 # LMP short address parameter */
 LMP_PARAM_MANUFACTURER_NAME = 0xB2 # Module manufacturer name */

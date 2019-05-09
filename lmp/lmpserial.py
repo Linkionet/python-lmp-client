@@ -16,7 +16,7 @@
 __author__      = "Bruno DEGUET"
 __email__       = "bruno@linkio.net"
 __copyright__   = "Copyright 2018, Linkio SAS"
-__version__     = "1.0.0"
+__version__     = "1.1.0"
 __status__      = "Development"
 
 
@@ -32,6 +32,7 @@ import traceback
 #from array import *
 from struct import *
 
+from errors import *
 from opcodes import *
 from lmptypes import *
 from devices import *
@@ -46,9 +47,11 @@ BAUDRATE = 57600
 
 myserial = None
 
+global_debug = False
 def mylog(string):
-    date = timestamp_str(None)
-    print("%s %s\n"%(date,string))
+    if global_debug :
+        date = timestamp_str(None)
+        print("%s %s"%(date,string))
 
 
 av_rssi = []
@@ -76,14 +79,20 @@ class ItQueue():
 class Module():
     def __init__(self,mac_addr):
         self.uid = mac_addr
-    	self.lmp_addr = None
+    	self.lmp_addr = 0
     	self.name = None
+    	#self.reference = None
+    	self.manufacturer_id = None
+    	self.model_id = None
+    	self.module_type = None
+    	self.custom_id = None
     	self.manufacturer = None
     	self.model = None
     	self.hw_version = None
     	self.sw_version = None
     	self.type_id = None
     	self.configuration = None
+    	self.factory_config = None
     	self.power_source = None
       	self.battery_level = 0
     	self.rssi = 0
@@ -101,6 +110,7 @@ class Module():
         self.devices = []
         self.storage_format = ""
         self.storage_params = []
+        self.gtw_list = []
 
     def type_str(self):
         return lmp_devices_str_dict.get(int(self.type_id),'unknown')
@@ -145,6 +155,12 @@ class Device():
     def type_str(self):
         return lmp_devices_str_dict.get(int(self.type_id),'unknown')
 
+class Response():
+    def __init__(self,status):
+        self.status = status
+        self.payload = None
+        self.payload_len = 0
+
 class LmpSerial(threading.Thread):
     """
         Ask the thread to stop by calling its join() method.
@@ -152,21 +168,30 @@ class LmpSerial(threading.Thread):
     def __init__(self,portTarget):
         super(LmpSerial, self).__init__()
         self.stoprequest = threading.Event()
-        self.port = serial.Serial(portTarget, baudrate=BAUDRATE, timeout=0.2)
         self.stateParse = 0
         self.countParse = 0
         self.messageParse = ""
         self.lengthParse = 0
         self.cmd_queue = []
+        self.debug = False
+        self.peripheral_connected_cb = None
+        self.peripheral_disconnected_cb = None
+        self.central_connected = False
         self.central_connected_cb = None
         self.central_disconnected_cb = None
         self.on_local_module_update_cb = None
         self.on_module_update_cb = None
+        self.on_beacon_update_cb = None
+        self.on_host_msg_cb = None
         self.on_device_data_status_cb = None
+        self.on_local_debug_cb = None
         self.on_device_data_event_cb = None
         self.modules = []
         self.local_module_addr = None
-
+        self.ack_done = False
+        self.response = None
+        self.port = serial.Serial(portTarget, baudrate=BAUDRATE, timeout=0.2)
+        mylog("init serial port on %s"%(portTarget))
 
     def join(self, timeout=None):
         self.stoprequest.set()
@@ -235,6 +260,16 @@ class LmpSerial(threading.Thread):
         self.cmd_queue.append(item_queue)
         self.process_queue()
 
+    def cmd_add_blocking(self,opcode,data,timeout,serial_ack_cb,ui_ack_cb):
+        self.ack_done = False
+        self.response = Response(LMP_ERR_TIMEOUT)
+        self.cmd_add(opcode,data,serial_ack_cb,ui_ack_cb)
+        for i in range(timeout):
+            if self.ack_done :
+                return self.response
+            time.sleep(0.1)
+        return self.response
+
     def process_queue(self):
         if self.cmd_queue :
             cmd = self.cmd_queue[0]
@@ -243,20 +278,27 @@ class LmpSerial(threading.Thread):
                 self.send(cmd.payload)
 
     def cmd_ack_handle(self,ack_opcode,frame_str):
-        cmd = self.cmd_queue[0]
-        if cmd.opcode == ack_opcode :
-            print("ack received : %s"%(serial_opcodes_str_dict.get(ack_opcode)))
-            if cmd.serial_ack_cb is not None :
-                cmd.serial_ack_cb(cmd.ui_ack_cb,frame_str)
+        if self.cmd_queue :
+            cmd = self.cmd_queue[0]
+            if cmd.opcode == ack_opcode :
+                #print("ack received : %s"%(serial_opcodes_str_dict.get(ack_opcode)))
+                if cmd.serial_ack_cb is not None :
+                    cmd.serial_ack_cb(cmd.ui_ack_cb,frame_str)
 
-            self.cmd_queue.pop(0) # remove item
-            self.process_queue() # next command
+                self.cmd_queue.pop(0) # remove item
+                self.process_queue() # next command
 
     def on_central_connected(self,function_cb):
         self.central_connected_cb = function_cb
 
     def on_central_disconnected(self,function_cb):
         self.central_disconnected_cb = function_cb
+
+    def on_peripheral_connected(self,function_cb):
+        self.peripheral_connected_cb = function_cb
+
+    def on_peripheral_disconnected(self,function_cb):
+        self.peripheral_disconnected_cb = function_cb
 
     def parse_frame(self,frame_str):
         """ Data parser.
@@ -269,14 +311,13 @@ class LmpSerial(threading.Thread):
                 print "err in parsing",debughex(frame_str)
             else:
                 data_len, event, status = unpack('<BHB', frame_str[:4])
-                #print("event=x%04x status=x%02x [%d] %s"%(event,status,data_len,repr(frame_str[4:])))
-                print("event=%s (x%04x) status=x%02x %s"%(serial_opcodes_str_dict.get(event),event,status,debughex(frame_str)))
+                #mylog("event=%s (x%04x) status=%s (x%02x) %s"%(serial_opcodes_str_dict.get(event),event,serial_errors_str_dict.get(status),status,debughex(frame_str)))
                 event_ack = event&0x7fff
                 if event&0x8000 :
                     self.cmd_ack_handle(event_ack,frame_str)
 
                     if event_ack == SERIAL_CMD_LOCAL_GROUPS_GET :
-                        mylog("SERIAL_CMD_LOCAL_GROUPS_GET ack status=%d"%(status))
+                        mylog("SERIAL_CMD_LOCAL_GROUPS_GET ack status=%s (%d)"%(serial_errors_str_dict.get(status),status))
                         parse_group_data(frame_str[4:-1])
 
                 elif event == SERIAL_EVT_REMOTE_MODULE_INFO_IND :
@@ -346,6 +387,14 @@ class LmpSerial(threading.Thread):
                             if self.on_device_data_event_cb :
                                 self.on_device_data_status_cb(updated_module,device,payload)
 
+                elif event == SERIAL_EVT_LOCAL_DEBUG_STR:
+                    level, = unpack('<B', frame_str[4:5])
+                    str = frame_str[5:-1]
+                    mylog("%d debug[%d]:%s"%(len(frame_str),level,str))
+                    if self.on_local_debug_cb :
+                        self.on_local_debug_cb( level, str )
+
+
                 elif event == SERIAL_EVT_LOCAL_CONNECT_IND :
                     d0,d1,d2,d3,d4,d5 = unpack('<BBBBBB', frame_str[4:10])
                     mac_address = "%02X:%02X:%02X:%02X:%02X:%02X"%(d5,d4,d3,d2,d1,d0)
@@ -353,22 +402,26 @@ class LmpSerial(threading.Thread):
                     # update local module info
                     if self.on_local_module_update_cb :
                         self.on_local_module_update_cb( self.local_module() )
+                    if self.peripheral_connected_cb:
+                        self.peripheral_connected_cb()
 
                 elif event == SERIAL_EVT_CENTRAL_CONNECTED_IND :
                     mylog( "SERIAL_EVT_CENTRAL_CONNECTED_IND")
-                    if self.central_connected_cb:
-                        self.central_connected_cb()
+                    self.central_connected = True
                     # update local module info
                     if self.on_local_module_update_cb :
                         self.on_local_module_update_cb( self.local_module() )
+                    if self.central_connected_cb:
+                        self.central_connected_cb()
 
                 elif event == SERIAL_EVT_CENTRAL_DISCONNECTED_IND :
                     mylog( "SERIAL_EVT_CENTRAL_DISCONNECTED_IND")
-                    if self.central_disconnected_cb:
-                        self.central_disconnected_cb()
+                    self.central_connected = False
                     # update local module info
                     if self.on_local_module_update_cb :
                         self.on_local_module_update_cb( self.local_module() )
+                    if self.central_disconnected_cb:
+                        self.central_disconnected_cb()
 
                 elif event == SERIAL_EVT_LOCAL_DISCONNECT_IND :
                     reason = unpack('<B', frame_str[4:5])
@@ -376,6 +429,8 @@ class LmpSerial(threading.Thread):
                     # update local module info
                     if self.on_local_module_update_cb :
                         self.on_local_module_update_cb( self.local_module() )
+                    if self.peripheral_disconnected_cb:
+                        self.peripheral_disconnected_cb()
 
                 elif event == SERIAL_EVT_LOCAL_UNREGISTER_IND :
                     mylog( "Event : local unregistered")
@@ -391,7 +446,11 @@ class LmpSerial(threading.Thread):
                     if self.on_registered_cb :
                         self.on_registered_cb( self.local_module() )
 
-                elif event == SERIAL_EVT_LOCAL_DEVICE_DATA_IND :
+                elif event == SERIAL_EVT_LOCAL_DATETIME_IND :
+                    timestamp, = unpack('<I', frame_str[4:-1])
+                    mylog("timestamp=%s (%08X)"%(timestamp_str(timestamp),timestamp))
+
+                elif event == SERIAL_EVT_LOCAL_DEVICE_DATA_SET_IND :
                     device_id = unpack('<B', frame_str[4:5])
                     device_payload = frame_str[5:-1]
                     mylog( "Event : local device %d"%(device_id))
@@ -414,9 +473,29 @@ class LmpSerial(threading.Thread):
                             self.on_module_update_cb(updated_module)
                         #if updated_module and self.on_device_data_status_cb :
                         #    self.on_device_data_status_cb(updated_module,payload)
+                elif event == SERIAL_EVT_REMOTE_NETWORK_INFO_IND:
+                    src_addr, = unpack('<H', frame_str[4:6])
+                    module = self.module_get_by_lmp_addr(src_addr)
+                    if module:
+                        payload = frame_str[6:-1]
+                        module.gtw_list = [0xffff,0xffff,0xffff,0xffff,0xffff,0xffff]
+                        module.gtw_list[0],module.gtw_list[1],module.gtw_list[2],module.gtw_list[3],module.gtw_list[4],module.gtw_list[5] = unpack('<HHHHHH', frame_str[6:-1])
+                        mylog("Network list from %04X = %04X %04X %04X %04X %04X %04X"
+                        %(src_addr,module.gtw_list[0],module.gtw_list[1],module.gtw_list[2],module.gtw_list[3],module.gtw_list[4],module.gtw_list[5]))
+                        if self.on_module_update_cb:
+                            self.on_module_update_cb(module)
                 elif event == SERIAL_EVT_REMOTE_BEACON_IND:
                     src_addr, = unpack('<H', frame_str[4:6])
                     payload = frame_str[6:-1]
+                    # beacon modules may not be visible, just return src_addr
+                    #module = self.module_get_by_lmp_addr(src_addr)
+                    #if module :
+                    if self.on_beacon_update_cb:
+                        self.on_beacon_update_cb(src_addr,payload)
+                elif event == SERIAL_EVT_HOST_MSG_IND:
+                    payload = frame_str[4:-1]
+                    if self.on_host_msg_cb:
+                        self.on_host_msg_cb(payload)
 
 
     def parse_lmp_fields(self,module,frame_str):
@@ -448,6 +527,24 @@ class LmpSerial(threading.Thread):
                     module.lmp_addr, = unpack('<H', frame_str[2:4])
                     mylog( "lmp_addr = %04X"%(module.lmp_addr))
 
+                elif lmp_command == LMP_PARAM_MODULE_REFERENCE :
+                    d0,d1,d2,d3,d4,d5 = unpack('<BBBBBB', frame_str[2:8])
+                    mac_address = "%02X%02X%02X%02X%02X%02X"%(d5,d4,d3,d2,d1,d0)
+                    mylog( "mac %s"%(mac_address))
+                    module.uid = mac_address
+
+                    module.manufacturer_id, = unpack('<H', frame_str[8:10])
+                    mylog( "manufacturer_id %d"%(module.manufacturer_id))
+
+                    module.model_id, = unpack('<H', frame_str[10:12])
+                    mylog( "model_id %d"%(module.model_id))
+
+                    module.module_type, = unpack('<H', frame_str[12:14])
+                    mylog( "module_type %d"%(module.module_type))
+
+                    module.custom_id, = unpack('<B', frame_str[14:15])
+                    mylog( "custom_id %d"%(module.custom_id))
+
                 elif lmp_command == LMP_PARAM_MAC_ADDRESS :
                     d0,d1,d2,d3,d4,d5 = unpack('<BBBBBB', frame_str[2:8])
                     mac_address = "%02X%02X%02X%02X%02X%02X"%(d5,d4,d3,d2,d1,d0)
@@ -463,16 +560,16 @@ class LmpSerial(threading.Thread):
                     mylog( "type %d"%(module.type_id))
 
                 elif lmp_command == LMP_PARAM_MANUFACTURER_NAME:
-                    module.manufacturer = frame_str[2:2+lmp_len]
-                    mylog( "manufacturer %s"%(module.manufacturer))
+                    module.manufacturer = frame_str[2:1+lmp_len]
+                    mylog( "manufacturer '%s'"%(module.manufacturer))
 
                 elif lmp_command == LMP_PARAM_MODEL_NAME:
-                    module.model = frame_str[2:2+lmp_len]
-                    mylog( "model %s"%(module.model))
+                    module.model = frame_str[2:1+lmp_len]
+                    mylog( "model '%s'"%(module.model))
 
                 elif lmp_command == LMP_PARAM_MODULE_NAME:
-                    module.name = frame_str[2:2+lmp_len]
-                    mylog( "name %s"%(module.name))
+                    module.name = frame_str[2:1+lmp_len]
+                    mylog( "name '%s'"%(module.name))
 
                 #elif lmp_command == LMP_PARAM_MODULE_API_VERSION:
 
@@ -549,20 +646,20 @@ class LmpSerial(threading.Thread):
         """ Given module info,
             find an existing module and update it.
         """
-        print("module_update")
+        mylog("module_update")
         existing_module = None
         if module :
             if module.uid :
-                print("I know uid=%s"%(module.uid))
+                #print("I know uid=%s"%(module.uid))
                 existing_module = self.module_get(module.uid)
                 if existing_module == None :
-                    print("Add module %04X"%(module.lmp_addr))
+                    mylog("Add module %04X"%(module.lmp_addr))
                     existing_module = Module(module.uid)
             elif module.lmp_addr :
-                print("I know lmp_addr=%04X"%(module.lmp_addr))
+                #print("I know lmp_addr=%04X"%(module.lmp_addr))
                 existing_module = self.module_get_by_lmp_addr(module.lmp_addr)
             if existing_module :
-                print("existing_module %04X"%(module.lmp_addr))
+                #print("existing_module %04X"%(module.lmp_addr))
                 # update fields of existing_module
                 if module.lmp_addr != existing_module.lmp_addr:
                     existing_module.lmp_addr = module.lmp_addr
@@ -624,8 +721,7 @@ class LmpSerial(threading.Thread):
 class Lmp(LmpSerial):
     def __init__(self,serial_device):
         super(Lmp, self).__init__(serial_device)
-        self.lms_send_callback_fct = None
-
+        #self.lms_send_callback_fct = None
 
     #def on_init_complete(self,callback_fct):
     #    self.on_init_complete_cb = callback_fct
@@ -642,6 +738,15 @@ class Lmp(LmpSerial):
     def on_module_update(self,callback_fct):
         self.on_module_update_cb = callback_fct
 
+    def on_beacon_update(self,callback_fct):
+        self.on_beacon_update_cb = callback_fct
+
+    def on_host_msg_update(self,callback_fct):
+        self.on_host_msg_cb = callback_fct
+
+    def on_local_debug_ind(self,callback_fct):
+        self.on_local_debug_cb = callback_fct
+
     def on_device_data_status_ind(self,callback_fct):
         """ called when received a SERIAL_EVT_REMOTE_DEVICE_DATA_STATUS_IND frame.
         """
@@ -652,13 +757,19 @@ class Lmp(LmpSerial):
         """
         self.on_device_data_event_cb = callback_fct
 
-    def init(self,on_init_complete_cb):
+    def init(self,on_init_complete_cb, debug=False):
+        global global_debug
         self.start()
         self.cmd_add(SERIAL_CMD_LOCAL_VERSION_GET,[],self.opcode_ack_local_version,None)
         self.cmd_add(SERIAL_CMD_LOCAL_MODULE_INFO_GET,[], self.opcode_ack_local_module_info,None )
         self.cmd_add(SERIAL_CMD_LOCAL_DEVICES_INFO_GET,[], self.opcode_ack_local_devices_info,None )
         #self.cmd_add(SERIAL_CMD_LOCAL_REGISTER,[0],self.opcode_ack_register)
         self.command_local_registration_get(on_init_complete_cb)
+        self.debug = debug
+        global_debug = debug
+
+    def command_local_register(self):
+        return self.cmd_add_blocking(SERIAL_CMD_LOCAL_REGISTER,[0],50,None,None)
 
     def command_local_config_get(self):
         self.cmd_add(SERIAL_CMD_LOCAL_CONFIG_STRUCT_GET,[],self.opcode_ack_local_config_struct_get,None)
@@ -675,8 +786,23 @@ class Lmp(LmpSerial):
     def command_local_register(self):
         self.cmd_add(SERIAL_CMD_LOCAL_REGISTER,[],None,None)
 
+    def command_local_device_data_status_set(self,device_id,device_data):
+        self.cmd_add(SERIAL_CMD_LOCAL_DEVICE_DATA_STATUS_SET,[device_id]+device_data,None,None)
+
     def command_local_registration_get(self,callback_fct):
         self.cmd_add(SERIAL_CMD_LOCAL_REGISTRATION_GET,[],self.opcode_ack_registration_get,callback_fct)
+
+    def command_local_factory_read(self):
+        self.cmd_add(SERIAL_CMD_LOCAL_FACTORY_DATA_GET,[],self.opcode_ack_factory_get,None)
+
+    def command_local_factory_write(self,data):
+        # complete data with 0 to 32 bytes before sending.
+        for i in range(32-len(data)):
+            data.append(0)
+        self.cmd_add(SERIAL_CMD_LOCAL_FACTORY_DATA_SET,data,None,None)
+
+    def command_local_host_msg_event(self,data):
+        self.cmd_add(SERIAL_CMD_HOST_MSG_EVENT,data,None,None)
 
     def command_local_crypt_nonce_get(self,callback_fct):
         self.cmd_add(SERIAL_CMD_LOCAL_CRYPT_NONCE_GET,[],self.opcode_ack_local_crypt_nonce_get,callback_fct)
@@ -707,6 +833,10 @@ class Lmp(LmpSerial):
         self.cmd_add(SERIAL_CMD_LOCAL_UNREGISTER,[],self.opcode_ack_local_unregister,None)
         self.command_local_registration_get(None)
 
+    def command_network_discover(self):
+        mylog("command_network_discover")
+        self.cmd_add(SERIAL_CMD_NETWORK_GET,[0xff,0xff,0x2],None,None)
+
     def command_remote_module_info(self):
         mylog("command_remote_module_info")
         self.cmd_add(SERIAL_CMD_REMOTE_MODULE_INFO_GET,[0xff,0xff],None,None)
@@ -716,6 +846,15 @@ class Lmp(LmpSerial):
         dst = u16_to_array(lmp_addr)
         self.cmd_add(SERIAL_CMD_REMOTE_DEVICE_INFO_GET,dst,None,None)
 
+    def command_local_module_property_get(self,property_id,callback_fct):
+        self.cmd_add(SERIAL_CMD_LOCAL_MODULE_PROPERTY_GET,[property_id],self.opcode_ack_module_property_get,None)
+
+    def command_local_module_property_set(self,property_id,property_data,callback_fct):
+        self.cmd_add(SERIAL_CMD_LOCAL_MODULE_PROPERTY_SET,[property_id]+property_data,self.opcode_ack_module_property_set,None)
+
+    def command_local_module_property_delete(self,property_id,callback_fct):
+        self.cmd_add(SERIAL_CMD_LOCAL_MODULE_PROPERTY_DELETE,[property_id],self.opcode_ack_module_property_delete,None)
+
     def command_local_device_property_get(self,device_id,property_id,callback_fct):
         self.cmd_add(SERIAL_CMD_LOCAL_DEVICE_PROPERTY_GET,[device_id,property_id],self.opcode_ack_device_property_get,None)
 
@@ -724,9 +863,6 @@ class Lmp(LmpSerial):
 
     def command_local_device_property_delete(self,device_id,property_id,callback_fct):
         self.cmd_add(SERIAL_CMD_LOCAL_DEVICE_PROPERTY_DELETE,[device_id,property_id],self.opcode_ack_device_property_delete,None)
-
-    def central_connect(self,mac_address,on_connected_cb, on_disconnected_cb) :
-        command_remote_connect(mac_address,on_connected_cb, on_disconnected_cb)
 
     def command_lmp_device_data_set(self,module_uid,device_id,device_data):
         """ TODO implement instead SERIAL_CMD_LMP_DEVICE_DATA_SET """
@@ -745,11 +881,46 @@ class Lmp(LmpSerial):
             data = d_addr + lmp_msg
             self.cmd_add(SERIAL_CMD_LOCAL_LMP_SEND,data,None,None)
 
+    def central_connect(self,mac_address,on_connected_cb, on_disconnected_cb) :
+        mylog("Connect req to %s"%(mac_address))
+        lmac = mac_to_array(mac_address)
+        self.on_central_connected(on_connected_cb)
+        self.on_central_disconnected(on_disconnected_cb)
+        r = self.cmd_add_blocking(SERIAL_CMD_CENTRAL_CONNECT,lmac,50,self.opcode_ack_central_connect,None)
+        if r.status == LMP_ERR_SUCCESS :
+            # wait for connected ind event
+            for i in range(50):
+                if self.central_connected :
+                    return r
+                time.sleep(0.1)
+            return LMP_ERR_TIMEOUT
+
+
+    def central_disconnect(self):
+        mylog("Disconnect")
+        self.cmd_add_blocking(SERIAL_CMD_CENTRAL_DISCONNECT,[],50,self.opcode_ack_central_disconnect,None)
+
+    def central_lms_send(self,dest_addr,enc,lms_msg,callback_fct):
+        #self.lms_send_callback_fct = None#callback_fct
+        d_enc = u8_to_array(enc)
+        d_addr = lmpaddr_to_array(dest_addr)
+        data = d_enc + d_addr + lms_msg
+        self.cmd_add(SERIAL_CMD_CENTRAL_LMS_SEND,data,self.opcode_ack_local_lms_send,callback_fct)
+        #if ui_ack_cb is not None :
+        #    ui_ack_cb(status)
+
+    def b_central_lms_send(self,dest_addr,enc,lms_msg):
+        #self.lms_send_callback_fct = None#callback_fct
+        d_enc = u8_to_array(enc)
+        d_addr = lmpaddr_to_array(dest_addr)
+        data = d_enc + d_addr + lms_msg
+        return self.cmd_add_blocking(SERIAL_CMD_CENTRAL_LMS_SEND,data,50,self.opcode_ack_local_lms_send,None)
+
     def opcode_ack_local_config_struct_get(self,ui_ack_cb,frame_str):
         """ Get local configuration structure.
         """
         status = unpack('<B', frame_str[:1])
-        mylog("SERIAL_CMD_LOCAL_CONFIG_DATA_GET ack status=%d"%(status))
+        mylog("SERIAL_CMD_LOCAL_CONFIG_DATA_GET ack status=%s (%d)"%(serial_errors_str_dict.get(status),status))
         self.parse_storage_struct(frame_str[4:-1])
         self.command_local_config_data_get()
         if ui_ack_cb is not None :
@@ -759,7 +930,7 @@ class Lmp(LmpSerial):
         """ Get local configuration.
         """
         status = unpack('<B', frame_str[:1])
-        mylog("SERIAL_CMD_LOCAL_CONFIG_DATA_GET ack status=%d"%(status))
+        mylog("SERIAL_CMD_LOCAL_CONFIG_DATA_GET ack status=%s (%d)"%(serial_errors_str_dict.get(status),status))
         self.parse_storage_data(frame_str[4:-1])
         if ui_ack_cb is not None :
             ui_ack_cb(status)
@@ -768,7 +939,7 @@ class Lmp(LmpSerial):
         """ Get local module version.
         """
         data_len, event, status = unpack('<BHB', frame_str[:4])
-        mylog("COMMAND_GET_FW_VERSION ack status=%d"%(status))
+        mylog("COMMAND_GET_FW_VERSION ack status=%s (%d)"%(serial_errors_str_dict.get(status),status))
         module = Module(None)
         self.parse_lmp_fields(module,frame_str[4:-1])
         self.local_module_addr = module.uid
@@ -783,37 +954,55 @@ class Lmp(LmpSerial):
         """
         module = self.local_module()
         data_len, event, status = unpack('<BHB', frame_str[:4])
-        mylog("SERIAL_CMD_LOCAL_MODULE_INFO_GET ack status=%d"%(status))
-        self.parse_lmp_fields(module,frame_str[4:-1])
-        if ui_ack_cb is not None :
-            ui_ack_cb(status)
+        mylog("SERIAL_CMD_LOCAL_MODULE_INFO_GET ack status=%s (%d)"%(serial_errors_str_dict.get(status),status))
+        if status == LMP_ERR_SUCCESS:
+            self.parse_lmp_fields(module,frame_str[4:-1])
+            if ui_ack_cb is not None :
+                ui_ack_cb(status)
 
     def opcode_ack_local_devices_info(self,ui_ack_cb,frame_str):
         """ Get local deices info.
         """
         module = self.local_module()
         data_len, event, status, devices_nr = unpack('<BHBB', frame_str[:5])
-        mylog("SERIAL_CMD_LOCAL_DEVICES_INFO_GET ack status=%d"%(status))
-        mylog("devices nr=%d"%(devices_nr))
-        frame_str = frame_str[5:-1]
-        for i in range(devices_nr):
-            devid,devtype,devname,devstatus = unpack("<BH8sB", frame_str[:12])
-            print("%d %d %d %s %d"%(i,devid,devtype,devname,devstatus))
-            device = module.device_create_or_get(devid)
-            device.name = devname
-            device.type_id = devtype
-            device.status = devstatus
-            frame_str = frame_str[12:]
-        if ui_ack_cb is not None :
-            ui_ack_cb(status)
+        mylog("SERIAL_CMD_LOCAL_DEVICES_INFO_GET ack status=%s (%d)"%(serial_errors_str_dict.get(status),status))
+        if status == LMP_ERR_SUCCESS:
+            mylog("devices nr=%d"%(devices_nr))
+            frame_str = frame_str[5:-1]
+            for i in range(devices_nr):
+                devid,devtype,devname,devstatus = unpack("<BH8sB", frame_str[:12])
+                #print("%d %d %d %s %d"%(i,devid,devtype,devname,devstatus))
+                device = module.device_create_or_get(devid)
+                device.name = devname
+                device.type_id = devtype
+                device.status = devstatus
+                frame_str = frame_str[12:]
+            if ui_ack_cb is not None :
+                ui_ack_cb(status)
+
+    def opcode_ack_factory_get(self,ui_ack_cb,frame_str):
+        """ Get factory config data.
+        """
+        #print "ack:",debughex(frame_str)
+        data_len, event, status = unpack('<BHB', frame_str[:4])
+        mylog("SERIAL_CMD_LOCAL_FACTORY_GET ack status=%s (%d)"%(serial_errors_str_dict.get(status),status))
+        if status == LMP_ERR_SUCCESS:
+            frame_str = frame_str[5:-1]
+            mylog("data=%s"%(debughex(frame_str)))
+            local_module = self.local_module()
+            local_module.factory_config = frame_str
+            if ui_ack_cb is not None :
+                ui_ack_cb(status)
+            if self.on_local_module_update_cb :
+                self.on_local_module_update_cb( local_module )
 
     def opcode_ack_registration_get(self,ui_ack_cb,frame_str):
         """ Get registration status.
         """
         #print "ack:",debughex(frame_str)
         data_len, event, status = unpack('<BHB', frame_str[:4])
-        mylog("SERIAL_CMD_LOCAL_REGISTRATION_GET ack status=%d"%(status))
-        if status == 0:
+        mylog("SERIAL_CMD_LOCAL_REGISTRATION_GET ack status=%s (%d)"%(serial_errors_str_dict.get(status),status))
+        if status == LMP_ERR_SUCCESS:
             local_module = self.local_module()
             local_module.registered, local_module.encryption = unpack('<BB', frame_str[4:-1])
             mylog("registered:%d, encryption:%d"%(local_module.registered, local_module.encryption))
@@ -824,111 +1013,120 @@ class Lmp(LmpSerial):
 
     def opcode_ack_register(self,ui_ack_cb,frame_str):
         data_len, event, status = unpack('<BHB', frame_str[:4])
-        if ui_ack_cb is not None :
-            ui_ack_cb(status)
+        if status == LMP_ERR_SUCCESS:
+            if ui_ack_cb is not None :
+                ui_ack_cb(status)
 
     def opcode_ack_local_unregister(self,ui_ack_cb,frame_str):
         data_len, event, status = unpack('<BHB', frame_str[:4])
-        mylog("SERIAL_CMD_LOCAL_UNREGISTER ack status=%d"%(status))
-        if ui_ack_cb is not None :
-            ui_ack_cb(status)
+        mylog("SERIAL_CMD_LOCAL_UNREGISTER ack status=%s (%d)"%(serial_errors_str_dict.get(status),status))
+        if status == LMP_ERR_SUCCESS:
+            if ui_ack_cb is not None :
+                ui_ack_cb(status)
 
     def opcode_ack_local_crypt_nonce_get(self,ui_ack_cb,frame_str):
         dlen, event, status = unpack('<BHB', frame_str[:4])
         #print dlen, event, status
-        if status == 0:
+        if status == LMP_ERR_SUCCESS:
             local_module = self.local_module()
             local_module.crypt_nonce = frame_str[4:dlen+1]
-        if ui_ack_cb is not None :
-            ui_ack_cb(status)
-        if self.on_local_module_update_cb :
-            self.on_local_module_update_cb( local_module )
+            if ui_ack_cb is not None :
+                ui_ack_cb(status)
+            if self.on_local_module_update_cb :
+                self.on_local_module_update_cb( local_module )
 
     def opcode_ack_local_crypt_key0_get(self,ui_ack_cb,frame_str):
         #TODO to merge with  opcode_ack_local_crypt_key1_get and add key_index in ack msg.
         dlen, event, status = unpack('<BHB', frame_str[:4])
         #print dlen, event, status
-        if status == 0:
+        if status == LMP_ERR_SUCCESS:
             local_module = self.local_module()
             local_module.crypt_key0 = frame_str[4:dlen+1]
-        if ui_ack_cb is not None :
-            ui_ack_cb(status)
-        if self.on_local_module_update_cb :
-            self.on_local_module_update_cb( local_module )
+            if ui_ack_cb is not None :
+                ui_ack_cb(status)
+            if self.on_local_module_update_cb :
+                self.on_local_module_update_cb( local_module )
 
 
     def opcode_ack_local_crypt_key1_get(self,ui_ack_cb,frame_str):
         #TODO to merge with  opcode_ack_local_crypt_key1_get and add key_index in ack msg.
         dlen, event, status = unpack('<BHB', frame_str[:4])
         #print dlen, event, status
-        if status == 0:
+        if status == LMP_ERR_SUCCESS:
             local_module = self.local_module()
             local_module.crypt_key1 = frame_str[4:dlen+1]
-        if ui_ack_cb is not None :
-            ui_ack_cb(status)
-        if self.on_local_module_update_cb :
-            self.on_local_module_update_cb( local_module )
+            if ui_ack_cb is not None :
+                ui_ack_cb(status)
+            if self.on_local_module_update_cb :
+                self.on_local_module_update_cb( local_module )
+
+    def opcode_ack_module_property_get(self,ui_ack_cb,frame_str):
+        dlen, event, status = unpack('<BHB', frame_str[:4])
+        mylog("SERIAL_CMD_LOCAL_MODULE_PROPERTY_GET ack status=%s (%d)"%(serial_errors_str_dict.get(status),status))
+        if status == LMP_ERR_SUCCESS:
+            if ui_ack_cb is not None :
+                ui_ack_cb(status)
+
+    def opcode_ack_module_property_set(self,ui_ack_cb,frame_str):
+        dlen, event, status = unpack('<BHB', frame_str[:4])
+        mylog("SERIAL_CMD_LOCAL_MODULE_PROPERTY_SET ack status=%s (%d)"%(serial_errors_str_dict.get(status),status))
+        if status == LMP_ERR_SUCCESS:
+            if ui_ack_cb is not None :
+                ui_ack_cb(status)
+
+    def opcode_ack_module_property_delete(self,ui_ack_cb,frame_str):
+        dlen, event, status = unpack('<BHB', frame_str[:4])
+        mylog("SERIAL_CMD_LOCAL_MODULE_PROPERTY_DELETE ack status=%s%d"%(serial_errors_str_dict.get(status),status))
+        if status == LMP_ERR_SUCCESS:
+            if ui_ack_cb is not None :
+                ui_ack_cb(status)
 
     def opcode_ack_device_property_get(self,ui_ack_cb,frame_str):
         dlen, event, status = unpack('<BHB', frame_str[:4])
-        mylog("SERIAL_CMD_LOCAL_DEVICE_PROPERTY_GET ack status=%d"%(status))
-        if ui_ack_cb is not None :
-            ui_ack_cb(status)
+        mylog("SERIAL_CMD_LOCAL_DEVICE_PROPERTY_GET ack status=%s (%d)"%(serial_errors_str_dict.get(status),status))
+        if status == LMP_ERR_SUCCESS:
+            if ui_ack_cb is not None :
+                ui_ack_cb(status)
 
     def opcode_ack_device_property_set(self,ui_ack_cb,frame_str):
         dlen, event, status = unpack('<BHB', frame_str[:4])
-        mylog("SERIAL_CMD_LOCAL_DEVICE_PROPERTY_SET ack status=%d"%(status))
-        if ui_ack_cb is not None :
-            ui_ack_cb(status)
+        mylog("SERIAL_CMD_LOCAL_DEVICE_PROPERTY_SET ack status=%s (%d)"%(serial_errors_str_dict.get(status),status))
+        if status == LMP_ERR_SUCCESS:
+            if ui_ack_cb is not None :
+                ui_ack_cb(status)
 
     def opcode_ack_device_property_delete(self,ui_ack_cb,frame_str):
         dlen, event, status = unpack('<BHB', frame_str[:4])
-        mylog("SERIAL_CMD_LOCAL_DEVICE_PROPERTY_DELETE ack status=%d"%(status))
-        if ui_ack_cb is not None :
-            ui_ack_cb(status)
+        mylog("SERIAL_CMD_LOCAL_DEVICE_PROPERTY_DELETE ack status=%s%d"%(serial_errors_str_dict.get(status),status))
+        if status == LMP_ERR_SUCCESS:
+            if ui_ack_cb is not None :
+                ui_ack_cb(status)
 
-
-    def opcode_ack_local_connect(frame_str,ui_ack_cb):
+    def opcode_ack_central_connect(self,ui_ack_cb,frame_str):
         data_len, event, status = unpack('<BHB', frame_str[:4])
-        mylog("SERIAL_CMD_LOCAL_CONNECT ack status=%d"%(status))
-        if ui_ack_cb is not None :
-            ui_ack_cb(status)
+        mylog("SERIAL_CMD_CENTRAL_CONNECT ack status=%s (%d)"%(serial_errors_str_dict.get(status),status))
+        if status == LMP_ERR_SUCCESS:
+            if ui_ack_cb is not None :
+                ui_ack_cb(status)
+            self.ack_done = True
+            self.response.status = status
 
-    def command_remote_connect(self,mac,on_connected_cb,on_disconnected_cb):
-        mylog("Connect req to %s"%(mac))
-        lmac = mac_to_array(mac)
-        myserial.cmd_add(SERIAL_CMD_LOCAL_CONNECT,lmac,self.opcode_ack_local_connect)
-        myserial.on_central_connected(on_connected_cb)
-        myserial.on_central_disconnected(on_disconnected_cb)
-        if ui_ack_cb is not None :
-            ui_ack_cb(status)
-
-    def opcode_ack_local_disconnect(self,ui_ack_cb,frame_str):
+    def opcode_ack_central_disconnect(self,ui_ack_cb,frame_str):
         data_len, event, status = unpack('<BHB', frame_str[:4])
-        mylog("SERIAL_CMD_LOCAL_DISCONNECT ack status=%d"%(status))
-        if ui_ack_cb is not None :
-            ui_ack_cb(status)
-
-    def command_remote_disconnect(self):
-        mylog("Disconnect")
-        self.cmd_add(SERIAL_CMD_LOCAL_DISCONNECT,[],self.opcode_ack_local_disconnect)
-        if ui_ack_cb is not None :
-            ui_ack_cb(status)
+        mylog("SERIAL_CMD_CENTRAL_DISCONNECT ack status=%s (%d)"%(serial_errors_str_dict.get(status),status))
+        if status == LMP_ERR_SUCCESS:
+            if ui_ack_cb is not None :
+                ui_ack_cb(status)
 
     def opcode_ack_local_lms_send(self,ui_ack_cb,frame_str):
         data_len, event, status = unpack('<BHB', frame_str[:4])
-        mylog("SERIAL_CMD_LOCAL_LMS_SEND ack status=%s (%d)"%(lmp_errors_list[status],status))
-        if ui_ack_cb is not None :
-            ui_ack_cb(status)
+        payload = None
         if status == LMP_ERR_SUCCESS:
-            if self.lms_send_callback_fct:
-                self.lms_send_callback_fct(frame_str)
-
-    def command_local_lms_send(self,dest_addr,enc,lms_msg,callback_fct):
-        self.lms_send_callback_fct = callback_fct
-        d_enc = u8_to_array(enc)
-        d_addr = lmpaddr_to_array(dest_addr)
-        data = d_enc + d_addr + lms_msg
-        self.cmd_add(SERIAL_CMD_LOCAL_LMS_SEND,data,self.opcode_ack_local_lms_send)
+            payload = frame_str[4:-1]
+        mylog("SERIAL_CMD_LOCAL_LMS_SEND ack status=%s (%d)"%(serial_errors_str_dict.get(status),status))
         if ui_ack_cb is not None :
-            ui_ack_cb(status)
+            ui_ack_cb(status,payload)
+        self.ack_done = True
+        self.response.status = status
+        self.response.payload = payload
+        self.response.payload_len = data_len

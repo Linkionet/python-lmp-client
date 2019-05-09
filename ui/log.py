@@ -43,9 +43,9 @@ class bcolors:
     UNDERLINE = '\033[4m'
 
 class UILog():
-    def __init__(self):
+    def __init__(self,name):
         wLog = Toplevel()
-        wLog.title("Log")
+        wLog.title("%s Log"%(name))
         wLog.protocol("WM_DELETE_WINDOW", wLog.iconify)
         #fLog = LabelFrame(wLog,text="Log",borderwidth=2,relief=GROOVE)
         #fLog.pack(fill="both", expand=False,side=RIGHT,padx=2,pady=2)

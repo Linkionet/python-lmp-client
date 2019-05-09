@@ -110,6 +110,8 @@ class LocalModuleFrame() :
         self.bUnregister.pack(side=TOP,padx=10,pady=1)
         self.bDiscover = Button(self.fLocalButtons, text = "Modules info", width=12, command = self.cDiscover)
         self.bDiscover.pack(side=TOP,padx=10,pady=1)
+        self.bNetworkInfo = Button(self.fLocalButtons, text = "Network info", width=12, command = self.cNetworkInfo)
+        self.bNetworkInfo.pack(side=TOP,padx=10,pady=1)
 
     def ui_device_get(self,device_id):
         for ui_device in self.ui_devices:
@@ -162,9 +164,23 @@ class LocalModuleFrame() :
         ui_log.debug("UI","module config get")
         client_lmp.command_local_config_get()
 
+    def cDataStatusSet(self):
+        """ To be completed
+        """
+        ui_log.debug("UI","module config get")
+        device_id = 0
+        status = 0
+        timestamp = u32_to_array(timestamp_ticks_now())
+        device_data = timestamp + [status,1]
+        client_lmp.command_local_device_data_status_set(device_id,device_data)
+
     def cReset(self):
         ui_log.debug("UI","module reset required")
         client_lmp.command_local_reset()
+
+    def cFactoryReset(self):
+        ui_log.debug("UI","module factory reset required")
+        client_lmp.command_local_factory_reset()
 
     def cUnregister(self):
         ui_log.debug("UI","module unregister")
@@ -173,6 +189,15 @@ class LocalModuleFrame() :
     def cDiscover(self):
         ui_log.debug("UI","modules info")
         client_lmp.command_remote_module_info()
+
+    def cNetworkInfo(sfoelf):
+        ui_log.debug("UI","network info")
+        client_lmp.command_network_discover()
+
+    def cHostMsgWrite(self):
+        data = string_to_array(self.pHostMsg.get())
+        ui_log.debug("UI","Write Host message %s"%(self.pHostMsg.get()))
+        client_lmp.command_local_host_msg_event(data)
 
 class ModulesFrame():
     def __init__(self,widget):
@@ -540,6 +565,13 @@ def on_device_data_status(module, device, frame):
         ui_device = ui_item.window.ui_device_get(device.id)
         ui_device.fDeviceEdit.data_update(device.data)
 
+def on_host_msg_update(frame):
+    ui_log.debug("UI","on_host_msg_update data=%s"%(debughex(frame)))
+
+def on_local_debug_update(level,log):
+    ui_log.debug("UI","Debug[%d] %s"%(level,log))
+
+
 def on_app_ready() :
     """ Build the main page. Get the current mode first. """
     ui_log.debug("UI","on_app_ready")
@@ -613,7 +645,7 @@ if __name__ == "__main__":
     root = Tk()
     root.wm_title("Linkio Mesh Controller")
 
-    ui_log = UILog()
+    ui_log = UILog("UI")
 
     fRemote = LabelFrame(root,text="Remote modules",borderwidth=2,relief=GROOVE)
     fRemote.pack(fill="both", expand=False,side=RIGHT,padx=2,pady=2)
@@ -634,7 +666,10 @@ if __name__ == "__main__":
     client_lmp.on_module_update(on_module_update)
     client_lmp.on_device_data_event_ind(on_device_data_event)
     client_lmp.on_device_data_status_ind(on_device_data_status)
-    client_lmp.init(on_init_complete)
+    client_lmp.on_host_msg_update(on_host_msg_update)
+    client_lmp.on_local_debug_ind(on_local_debug_update)
+
+    client_lmp.init(on_init_complete, debug=False)
     client_lmp.command_remote_module_info()
 
     root.mainloop()
