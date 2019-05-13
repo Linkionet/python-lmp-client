@@ -79,27 +79,27 @@ class ItQueue():
 class Module():
     def __init__(self,mac_addr):
         self.uid = mac_addr
-    	self.lmp_addr = 0
-    	self.name = None
-    	#self.reference = None
-    	self.manufacturer_id = None
-    	self.model_id = None
-    	self.module_type = None
-    	self.custom_id = None
-    	self.manufacturer = None
-    	self.model = None
-    	self.hw_version = None
-    	self.sw_version = None
-    	self.type_id = None
-    	self.configuration = None
-    	self.factory_config = None
-    	self.power_source = None
-      	self.battery_level = 0
-    	self.rssi = 0
-    	self.interval = None
-    	self.status = None
-    	self.timestamp = None
-    	self.heartbeat_timestamp = None
+        self.lmp_addr = 0
+        self.name = None
+        #self.reference = None
+        self.manufacturer_id = None
+        self.model_id = None
+        self.module_type = None
+        self.custom_id = None
+        self.manufacturer = None
+        self.model = None
+        self.hw_version = None
+        self.sw_version = None
+        self.type_id = None
+        self.configuration = None
+        self.factory_config = None
+        self.power_source = None
+        self.battery_level = 0
+        self.rssi = 0
+        self.interval = None
+        self.status = None
+        self.timestamp = None
+        self.heartbeat_timestamp = None
         self.registered = 0
         self.encryption = 0
         self.crypt_nonce = []
@@ -146,11 +146,11 @@ class Module():
 class Device():
     def __init__(self,module,device_id):
         self.id = device_id
-    	self.name = None
-    	self.type_id = 0
-    	self.status = None
-    	self.timestamp = None
-    	self.data = None
+        self.name = None
+        self.type_id = 0
+        self.status = None
+        self.timestamp = None
+        self.data = None
         self.module = module
     def type_str(self):
         return lmp_devices_str_dict.get(int(self.type_id),'unknown')
