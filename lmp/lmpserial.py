@@ -27,17 +27,13 @@ import threading
 import numpy
 import colorsys
 import traceback
-#import array
-#import itertools
-#from array import *
 from struct import *
 
-from errors import *
-from opcodes import *
-from lmptypes import *
-from devices import *
-from utils import *
-#from param import *
+from .errors import *
+from .utils import *
+from .lmptypes import *
+from .opcodes import *
+from .devices import *
 
 SERIAL_SOF = 0xFE
 
@@ -170,7 +166,7 @@ class LmpSerial(threading.Thread):
         self.stoprequest = threading.Event()
         self.stateParse = 0
         self.countParse = 0
-        self.messageParse = ""
+        self.messageParse = []
         self.lengthParse = 0
         self.cmd_queue = []
         self.debug = False
@@ -208,35 +204,38 @@ class LmpSerial(threading.Thread):
                 rcv = ""
             #begin parse:
             i = 0
-            #print "DEBUG: len rcv=" + "%d"%len(rcv)
+            #print("DEBUG: len rcv=" + "%d"%len(rcv))
             if len(rcv)>1:
-                #print "DEBUG: len(rcv) =%d\n"%len(rcv)
+                #print("DEBUG: len(rcv) =%d\n"%len(rcv))
                 while i < len(rcv):
                     self.parse_buffer(rcv[i])
                     i += 1
 
     def parse_buffer(self,buffer_cara):
         if self.stateParse == 0:
-            #print "DEBUG: message start\n"
-            if buffer_cara == "\xfe":
+            #print("DEBUG: message start x%02x\n"%(buffer_cara))
+            #if buffer_cara == "\xfe":
+            if buffer_cara == 0xfe:
                 self.stateParse = 1
                 return
         elif self.stateParse == 1:
-            length = unpack('<B', buffer_cara)
-            self.lengthParse = length[0] + 2
-            #print "DEBUG: len=" + "%d\n"%self.lengthParse
-            self.messageParse += buffer_cara
+            #length = unpack('<B', buffer_cara)
+            self.lengthParse = buffer_cara + 2
+            #print("DEBUG: len=" + "%d\n"%self.lengthParse)
+            self.messageParse.append(buffer_cara)
             self.stateParse = 2
             return
         elif self.stateParse == 2:
-            self.messageParse += buffer_cara
-            #print "DEBUG: len messageParse=  %d, length= %d  value= %d"%(len(self.messageParse),self.lengthParse,unpack('<B', buffer_cara)[0])
+            self.messageParse.append(buffer_cara)
+            #print("DEBUG: len messageParse=  %d, length= %d  value= %d"%(len(self.messageParse),self.lengthParse,unpack('<B', buffer_cara)[0]))
+            #print("DEBUG: len messageParse=  %d, length= %d  value= %d"%(len(self.messageParse),self.lengthParse,buffer_cara))
             if len(self.messageParse) >= self.lengthParse:
-                #print "DEBUG: message received",debughex(self.messageParse)
+                #print("DEBUG: message received %s" % (self.messageParse))
+                #print(self.messageParse)
                 self.parse_frame(self.messageParse)
                 self.stateParse = 0
                 self.countParse = 0
-                self.messageParse = ""
+                self.messageParse = []
                 self.lengthParse = 0
                 return
 
@@ -256,6 +255,7 @@ class LmpSerial(threading.Thread):
         fcs = fcs_calc(payload)
         payload.append(fcs) # FCS
         #self.send(payload)
+        #print(payload)
         item_queue = ItQueue(opcode,payload,serial_ack_cb,ui_ack_cb)
         self.cmd_queue.append(item_queue)
         self.process_queue()
@@ -308,10 +308,14 @@ class LmpSerial(threading.Thread):
             try :
                 pass
             except:
-                print "err in parsing",debughex(frame_str)
+                print("err in parsing",debughex(frame_str))
             else:
-                data_len, event, status = unpack('<BHB', frame_str[:4])
-                #mylog("event=%s (x%04x) status=%s (x%02x) %s"%(serial_opcodes_str_dict.get(event),event,serial_errors_str_dict.get(status),status,debughex(frame_str)))
+                #data_len, event, status = unpack('<BHB', frame_str[:4])
+                #print(frame_str[:4])
+                data_len = frame_str[0]
+                event = array_to_u16(frame_str[1:])
+                status = frame_str[3]
+                mylog("event=%s (x%04x) status=%s (x%02x)"%(serial_opcodes_str_dict.get(event&0x7fff),event,serial_errors_str_dict.get(status),status))
                 event_ack = event&0x7fff
                 if event&0x8000 :
                     self.cmd_ack_handle(event_ack,frame_str)
@@ -322,7 +326,7 @@ class LmpSerial(threading.Thread):
 
                 elif event == SERIAL_EVT_REMOTE_MODULE_INFO_IND :
                     """ format : src_addr (H) + LMP fields """
-                    src_addr, = unpack('<H', frame_str[4:6])
+                    src_addr = array_to_u16(frame_str[4:])
                     mylog( "Evt SERIAL_EVT_REMOTE_MODULE_INFO_IND from %04X"%(src_addr))
                     module = Module(None) #self.module_get_by_lmp_addr(src_addr)
                     module.lmp_addr = src_addr
@@ -340,7 +344,7 @@ class LmpSerial(threading.Thread):
 
                 elif event == SERIAL_EVT_REMOTE_LMP_DATA_EVENT_IND :
                     """ format : src_addr (H) + LMP fields """
-                    src_addr, = unpack('<H', frame_str[4:6])
+                    src_addr = array_to_u16(frame_str[4])
                     mylog( "Evt SERIAL_EVT_REMOTE_LMP_DATA_EVENT_IND from %04X"%(src_addr))
                     module = Module(None) #self.module_get_by_lmp_addr(src_addr)
                     module.lmp_addr = src_addr
@@ -350,7 +354,7 @@ class LmpSerial(threading.Thread):
 
                 elif event == SERIAL_EVT_REMOTE_LMP_DATA_STATUS_IND :
                     """ format : src_addr (H) + LMP fields """
-                    src_addr = unpack('<H', frame_str[4:6])
+                    src_addr = array_to_u16(frame_str[4:])
                     mylog( "Status SERIAL_EVT_REMOTE_LMP_DATA_STATUS_IND from %04X"%(src_addr))
                     module = Module(None) #self.module_get_by_lmp_addr(src_addr)
                     module.lmp_addr = src_addr
@@ -359,12 +363,14 @@ class LmpSerial(threading.Thread):
                         updated_module = self.modules_update(module)
 
                 elif event == SERIAL_EVT_LOCAL_DEVICE_DATA_SET_IND :
-                    src_addr, device_id = unpack('<HB', frame_str[4:7])
+                    src_addr = array_to_u16(frame_str[4:])
+                    device_id =  frame_str[6] #unpack('<HB', frame_str[4:7])
                     payload = frame_str[7:-1]
                     mylog("SERIAL_EVT_LOCAL_DEVICE_DATA_SET_IND from %04X : %s"%(src_addr,debughex(payload)))
 
                 elif event == SERIAL_EVT_REMOTE_DEVICE_DATA_EVENT_IND:
-                    src_addr, device_id = unpack('<HB', frame_str[4:7])
+                    src_addr = array_to_u16(frame_str[4:])
+                    device_id =  frame_str[6] #unpack('<HB', frame_str[4:7])
                     payload = frame_str[7:-1]
                     mylog("SERIAL_EVT_REMOTE_DEVICE_DATA_EVENT_IND from %04X : %s"%(src_addr,debughex(payload)))
                     updated_module = self.module_get_by_lmp_addr(src_addr)
@@ -376,7 +382,8 @@ class LmpSerial(threading.Thread):
                                 self.on_device_data_event_cb(updated_module,device,payload)
 
                 elif event == SERIAL_EVT_REMOTE_DEVICE_DATA_STATUS_IND:
-                    src_addr, device_id = unpack('<HB', frame_str[4:7])
+                    src_addr = array_to_u16(frame_str[4:])
+                    device_id =  frame_str[6] #unpack('<HB', frame_str[4:7])
                     payload = frame_str[7:-1]
                     mylog("SERIAL_EVT_REMOTE_DEVICE_DATA_STATUS_IND from %04X : %s"%(src_addr,debughex(payload)))
                     updated_module = self.module_get_by_lmp_addr(src_addr)
@@ -388,15 +395,21 @@ class LmpSerial(threading.Thread):
                                 self.on_device_data_status_cb(updated_module,device,payload)
 
                 elif event == SERIAL_EVT_LOCAL_DEBUG_STR:
-                    level, = unpack('<B', frame_str[4:5])
-                    str = frame_str[5:-1]
+                    level = frame_str[4]#unpack('<B', frame_str[4:5])
+                    str = array_to_str(frame_str[5:-1])
                     mylog("%d debug[%d]:%s"%(len(frame_str),level,str))
                     if self.on_local_debug_cb :
                         self.on_local_debug_cb( level, str )
 
 
                 elif event == SERIAL_EVT_LOCAL_CONNECT_IND :
-                    d0,d1,d2,d3,d4,d5 = unpack('<BBBBBB', frame_str[4:10])
+                    #d0,d1,d2,d3,d4,d5 = unpack('<BBBBBB', frame_str[4:10])
+                    d0 = frame_str[4]
+                    d1 = frame_str[5]
+                    d2 = frame_str[6]
+                    d3 = frame_str[7]
+                    d4 = frame_str[8]
+                    d5 = frame_str[9]
                     mac_address = "%02X:%02X:%02X:%02X:%02X:%02X"%(d5,d4,d3,d2,d1,d0)
                     mylog( "Connected to mac %s"%(mac_address))
                     # update local module info
@@ -424,7 +437,7 @@ class LmpSerial(threading.Thread):
                         self.central_disconnected_cb()
 
                 elif event == SERIAL_EVT_LOCAL_DISCONNECT_IND :
-                    reason = unpack('<B', frame_str[4:5])
+                    reason = frame_str[4]
                     mylog( "Disconnected, reason=%02X"%(reason))
                     # update local module info
                     if self.on_local_module_update_cb :
@@ -447,20 +460,24 @@ class LmpSerial(threading.Thread):
                         self.on_registered_cb( self.local_module() )
 
                 elif event == SERIAL_EVT_LOCAL_DATETIME_IND :
-                    timestamp, = unpack('<I', frame_str[4:-1])
+                    timestamp = array_to_u32(frame_str[4:-1])
                     mylog("timestamp=%s (%08X)"%(timestamp_str(timestamp),timestamp))
 
                 elif event == SERIAL_EVT_LOCAL_DEVICE_DATA_SET_IND :
-                    device_id = unpack('<B', frame_str[4:5])
+                    device_id = frame_str[4]
                     device_payload = frame_str[5:-1]
                     mylog( "Event : local device %d"%(device_id))
                     mylog( "data %s"%(debughex(device_payload)))
                     #mylog( "Event : device %d %s"%(device_id,debughex(device_payload)))
                 elif event == SERIAL_EVT_REMOTE_DEVICE_INFO_IND:
-                    src_addr, = unpack('<H', frame_str[4:6])
+                    src_addr = array_to_u16(frame_str[4:])
                     payload = frame_str[6:-1]
                     #print( "%s"%(debughex(payload)))
-                    dnr,did,dtype,dname,dstatus = unpack('<BBH8sB', frame_str[6:-1])
+                    dnr = frame_str[6]
+                    did = frame_str[7]
+                    dtype = array_to_u16(frame_str[8:])
+                    dname = array_to_str(frame_str[10:14])
+                    dstatus = frame_str[15]
                     dname=dname.split('\0')[0]
                     mylog("Status from module=%04X device=%d/%d type=%04X name=%s status=%X"%(src_addr,did,dnr,dtype,dname,dstatus))
                     updated_module = self.module_get_by_lmp_addr(src_addr)
@@ -474,18 +491,23 @@ class LmpSerial(threading.Thread):
                         #if updated_module and self.on_device_data_status_cb :
                         #    self.on_device_data_status_cb(updated_module,payload)
                 elif event == SERIAL_EVT_REMOTE_NETWORK_INFO_IND:
-                    src_addr, = unpack('<H', frame_str[4:6])
+                    src_addr = array_to_u16(frame_str[4:])
                     module = self.module_get_by_lmp_addr(src_addr)
                     if module:
                         payload = frame_str[6:-1]
                         module.gtw_list = [0xffff,0xffff,0xffff,0xffff,0xffff,0xffff]
-                        module.gtw_list[0],module.gtw_list[1],module.gtw_list[2],module.gtw_list[3],module.gtw_list[4],module.gtw_list[5] = unpack('<HHHHHH', frame_str[6:-1])
+                        module.gtw_list[0] = array_to_u16(frame_str[6:])
+                        module.gtw_list[1] = array_to_u16(frame_str[8:])
+                        module.gtw_list[2] = array_to_u16(frame_str[10:])
+                        module.gtw_list[3] = array_to_u16(frame_str[12:])
+                        module.gtw_list[4] = array_to_u16(frame_str[14:])
+                        module.gtw_list[5] = array_to_u16(frame_str[16:])
                         mylog("Network list from %04X = %04X %04X %04X %04X %04X %04X"
                         %(src_addr,module.gtw_list[0],module.gtw_list[1],module.gtw_list[2],module.gtw_list[3],module.gtw_list[4],module.gtw_list[5]))
                         if self.on_module_update_cb:
                             self.on_module_update_cb(module)
                 elif event == SERIAL_EVT_REMOTE_BEACON_IND:
-                    src_addr, = unpack('<H', frame_str[4:6])
+                    src_addr = array_to_u16(frame_str[4:])
                     payload = frame_str[6:-1]
                     # beacon modules may not be visible, just return src_addr
                     #module = self.module_get_by_lmp_addr(src_addr)
@@ -507,46 +529,65 @@ class LmpSerial(threading.Thread):
     def parse_lmp_field(self,module,frame_str):
         """ Parse LMP fields.
         """
-        #print "parse_lmp_field ",src_addr,debughex(frame_str)
+        #mylog("parse_lmp_field : %s"%frame_str)
 
         if len(frame_str) >=2 :
             try:
-                lmp_len, lmp_command = unpack('<BB', frame_str[:2])
-                #print "field",lmp_len, lmp_command
+                lmp_len = frame_str[0]
+                lmp_command = frame_str[1]
+                mylog("field[%d]=%02X %s"%(lmp_len, lmp_command,frame_str[2:lmp_len+1]))
                 if lmp_command == LMP_PARAM_MODULE_SW_VERSION :
-                    magic, major, minor, revision = unpack('<BBBB', frame_str[2:6])
+                    magic = frame_str[2] #unpack('<BBBB', frame_str[2:6])
+                    major = frame_str[3] #unpack('<BBBB', frame_str[2:6])
+                    minor = frame_str[4] #unpack('<BBBB', frame_str[2:6])
+                    revision = frame_str[5] #unpack('<BBBB', frame_str[2:6])
                     mylog( "software version %d.%d.%d(x%02X)"%(major, minor, revision,magic))
                     module.sw_version = ("%d.%d.%d (x%02X)"%(major, minor, revision,magic))
 
                 elif lmp_command == LMP_PARAM_MODULE_HW_VERSION :
-                    major, minor, revision = unpack('<BBB', frame_str[2:5])
+                    major = frame_str[2] #unpack('<BBBB', frame_str[2:6])
+                    minor = frame_str[3] #unpack('<BBBB', frame_str[2:6])
+                    revision = frame_str[4] #unpack('<BBBB', frame_str[2:6])
+                    #major, minor, revision = unpack('<BBB', frame_str[2:5])
                     mylog( "hardware version %d.%d.%d"%(major, minor, revision))
                     module.hw_version = ("%d.%d.%d"%(major, minor, revision))
 
                 elif lmp_command == LMP_PARAM_SHORT_ADDRESS :
-                    module.lmp_addr, = unpack('<H', frame_str[2:4])
+                    module.lmp_addr = array_to_u16(frame_str[2:]) #unpack('<H', frame_str[2:4])
                     mylog( "lmp_addr = %04X"%(module.lmp_addr))
 
                 elif lmp_command == LMP_PARAM_MODULE_REFERENCE :
-                    d0,d1,d2,d3,d4,d5 = unpack('<BBBBBB', frame_str[2:8])
+                    #d0,d1,d2,d3,d4,d5 = unpack('<BBBBBB', frame_str[2:8])
+                    d0 = frame_str[2]
+                    d1 = frame_str[3]
+                    d2 = frame_str[4]
+                    d3 = frame_str[5]
+                    d4 = frame_str[6]
+                    d5 = frame_str[7]
                     mac_address = "%02X%02X%02X%02X%02X%02X"%(d5,d4,d3,d2,d1,d0)
                     mylog( "mac %s"%(mac_address))
                     module.uid = mac_address
 
-                    module.manufacturer_id, = unpack('<H', frame_str[8:10])
+                    module.manufacturer_id = array_to_u16(frame_str[8:]) #unpack('<H', frame_str[8:10])
                     mylog( "manufacturer_id %d"%(module.manufacturer_id))
 
-                    module.model_id, = unpack('<H', frame_str[10:12])
+                    module.model_id = array_to_u16(frame_str[10:]) #unpack('<H', frame_str[10:12])
                     mylog( "model_id %d"%(module.model_id))
 
-                    module.module_type, = unpack('<H', frame_str[12:14])
+                    module.module_type = array_to_u16(frame_str[12:]) #unpack('<H', frame_str[12:14])
                     mylog( "module_type %d"%(module.module_type))
 
-                    module.custom_id, = unpack('<B', frame_str[14:15])
+                    module.custom_id = array_to_u16(frame_str[14:]) #unpack('<B', frame_str[14:15])
                     mylog( "custom_id %d"%(module.custom_id))
 
                 elif lmp_command == LMP_PARAM_MAC_ADDRESS :
-                    d0,d1,d2,d3,d4,d5 = unpack('<BBBBBB', frame_str[2:8])
+                    #d0,d1,d2,d3,d4,d5 = unpack('<BBBBBB', frame_str[2:8])
+                    d0 = frame_str[2]
+                    d1 = frame_str[3]
+                    d2 = frame_str[4]
+                    d3 = frame_str[5]
+                    d4 = frame_str[6]
+                    d5 = frame_str[7]
                     mac_address = "%02X%02X%02X%02X%02X%02X"%(d5,d4,d3,d2,d1,d0)
                     #mac_address = "%02X:%02X:%02X:%02X:%02X:%02X"%(d5,d4,d3,d2,d1,d0)
                     #print "mac %s"%(mac_address)
@@ -555,39 +596,41 @@ class LmpSerial(threading.Thread):
                     module.uid = mac_address
 
                 elif lmp_command == LMP_PARAM_MODULE_TYPE :
-                    module.type_id, = unpack('<H', frame_str[2:4])
+                    module.type_id = array_to_u16(frame_str[2:]) #unpack('<H', frame_str[2:4])
                     #print "type %d"%(module_type)
                     mylog( "type %d"%(module.type_id))
 
                 elif lmp_command == LMP_PARAM_MANUFACTURER_NAME:
-                    module.manufacturer = frame_str[2:1+lmp_len]
-                    mylog( "manufacturer '%s'"%(module.manufacturer))
+                    module.manufacturer = array_to_str(frame_str[2:1+lmp_len]) #frame_str[2:1+lmp_len]
+                    mylog( "manufacturer[%d] '%s'"%(len(module.manufacturer), module.manufacturer))
 
                 elif lmp_command == LMP_PARAM_MODEL_NAME:
-                    module.model = frame_str[2:1+lmp_len]
+                    module.model = array_to_str(frame_str[2:1+lmp_len]) #frame_str[2:1+lmp_len]
                     mylog( "model '%s'"%(module.model))
 
                 elif lmp_command == LMP_PARAM_MODULE_NAME:
-                    module.name = frame_str[2:1+lmp_len]
+                    module.name = array_to_str(frame_str[2:1+lmp_len]) #frame_str[2:1+lmp_len]
                     mylog( "name '%s'"%(module.name))
 
                 #elif lmp_command == LMP_PARAM_MODULE_API_VERSION:
 
                 elif lmp_command == LMP_PARAM_RSSI :
-                    rssi, = unpack('<b', frame_str[2:3])
+                    rssi = array_to_signed(frame_str[2])
                     #print "Rssi = %d"%(rssi)
                     mean,std = average_rssi(rssi)
                     mylog( "Rssi = %d (average = %2.1f, std = %2.1f)"%(rssi,mean,std))
                     module.rssi = rssi
 
                 elif lmp_command == LMP_PARAM_ROLE :
-                    module.role, = unpack('<B', frame_str[2:3])
+                    module.role = frame_str[2]
                     mylog( "role %d"%(module.role))
 
                 elif lmp_command == LMP_STATUS_DEVICE_INFO :
-                    dnr,did,dtype,dname,dstatus = unpack('<BBH8sB', frame_str[2:])
-                    #print "type %d"%(module_type)
-                    #print src_addr,did,dnr,dtype,dname
+                    dnr = frame_str[2]
+                    did = frame_str[3]
+                    dtype = array_to_u16(frame_str[4:])
+                    dname = array_to_str(frame_str[6:10])
+                    dstatus = frame_str[11]
                     dname=dname.split('\0')[0]
                     mylog("device src=%04X id=%d/%d type=%04X name=%s status=%X"%(src_addr,did,dnr,dtype,dname,dstatus))
 
@@ -604,15 +647,15 @@ class LmpSerial(threading.Thread):
                     self.storage_format = "<"+"".join(formats)
                     #print storage_format
                 elif lmp_command == LMP_PARAM_BATTERY_LEVEL :
-                    module.battery_level, = unpack('<B', frame_str[2:])
+                    module.battery_level = frame_str[2] #unpack('<B', frame_str[2:])
                     #print "batt_level=%d"%(batt_level)
                     mylog( "battery_level %d"%(module.battery_level))
 
                 return frame_str[1+lmp_len:]
             except Exception as e:
                 print("err in field parsing")
-                print e
-                print traceback.print_exc()
+                print(e)
+                print("%s"%(traceback.print_exc()))
                 return None
 
     def local_module(self):
@@ -919,7 +962,7 @@ class Lmp(LmpSerial):
     def opcode_ack_local_config_struct_get(self,ui_ack_cb,frame_str):
         """ Get local configuration structure.
         """
-        status = unpack('<B', frame_str[:1])
+        status = frame_str[0]
         mylog("SERIAL_CMD_LOCAL_CONFIG_DATA_GET ack status=%s (%d)"%(serial_errors_str_dict.get(status),status))
         self.parse_storage_struct(frame_str[4:-1])
         self.command_local_config_data_get()
@@ -929,7 +972,7 @@ class Lmp(LmpSerial):
     def opcode_ack_local_config_data_get(self,ui_ack_cb,frame_str):
         """ Get local configuration.
         """
-        status = unpack('<B', frame_str[:1])
+        status = frame_str[0]
         mylog("SERIAL_CMD_LOCAL_CONFIG_DATA_GET ack status=%s (%d)"%(serial_errors_str_dict.get(status),status))
         self.parse_storage_data(frame_str[4:-1])
         if ui_ack_cb is not None :
@@ -938,7 +981,9 @@ class Lmp(LmpSerial):
     def opcode_ack_local_version(self,ui_ack_cb,frame_str):
         """ Get local module version.
         """
-        data_len, event, status = unpack('<BHB', frame_str[:4])
+        data_len = frame_str[0]
+        event = array_to_u16(frame_str[1:])
+        status = frame_str[3]
         mylog("COMMAND_GET_FW_VERSION ack status=%s (%d)"%(serial_errors_str_dict.get(status),status))
         module = Module(None)
         self.parse_lmp_fields(module,frame_str[4:-1])
@@ -953,7 +998,9 @@ class Lmp(LmpSerial):
         """ Get local module info.
         """
         module = self.local_module()
-        data_len, event, status = unpack('<BHB', frame_str[:4])
+        data_len = frame_str[0]
+        event = array_to_u16(frame_str[1:])
+        status = frame_str[3]
         mylog("SERIAL_CMD_LOCAL_MODULE_INFO_GET ack status=%s (%d)"%(serial_errors_str_dict.get(status),status))
         if status == LMP_ERR_SUCCESS:
             self.parse_lmp_fields(module,frame_str[4:-1])
@@ -964,14 +1011,20 @@ class Lmp(LmpSerial):
         """ Get local deices info.
         """
         module = self.local_module()
-        data_len, event, status, devices_nr = unpack('<BHBB', frame_str[:5])
+        data_len = frame_str[0]
+        event = array_to_u16(frame_str[1:])
+        status = frame_str[3]
+        devices_nr = frame_str[4]
         mylog("SERIAL_CMD_LOCAL_DEVICES_INFO_GET ack status=%s (%d)"%(serial_errors_str_dict.get(status),status))
         if status == LMP_ERR_SUCCESS:
             mylog("devices nr=%d"%(devices_nr))
             frame_str = frame_str[5:-1]
             for i in range(devices_nr):
-                devid,devtype,devname,devstatus = unpack("<BH8sB", frame_str[:12])
-                #print("%d %d %d %s %d"%(i,devid,devtype,devname,devstatus))
+                devid = frame_str[0]
+                devtype = array_to_u16(frame_str[1:])
+                devname = array_to_str(frame_str[3:10])
+                devstatus = frame_str[11] #unpack("<BH8sB", frame_str[:12])
+                mylog("device[%d]: %d %d %s %d"%(i,devid,devtype,devname,devstatus))
                 device = module.device_create_or_get(devid)
                 device.name = devname
                 device.type_id = devtype
@@ -984,7 +1037,9 @@ class Lmp(LmpSerial):
         """ Get factory config data.
         """
         #print "ack:",debughex(frame_str)
-        data_len, event, status = unpack('<BHB', frame_str[:4])
+        data_len = frame_str[0]
+        event = array_to_u16(frame_str[1:])
+        status = frame_str[3]
         mylog("SERIAL_CMD_LOCAL_FACTORY_GET ack status=%s (%d)"%(serial_errors_str_dict.get(status),status))
         if status == LMP_ERR_SUCCESS:
             frame_str = frame_str[5:-1]
@@ -1000,11 +1055,14 @@ class Lmp(LmpSerial):
         """ Get registration status.
         """
         #print "ack:",debughex(frame_str)
-        data_len, event, status = unpack('<BHB', frame_str[:4])
+        data_len = frame_str[0]
+        event = array_to_u16(frame_str[1:])
+        status = frame_str[3]
         mylog("SERIAL_CMD_LOCAL_REGISTRATION_GET ack status=%s (%d)"%(serial_errors_str_dict.get(status),status))
         if status == LMP_ERR_SUCCESS:
             local_module = self.local_module()
-            local_module.registered, local_module.encryption = unpack('<BB', frame_str[4:-1])
+            local_module.registered = frame_str[4]
+            local_module.encryption = frame_str[5] #unpack('<BB', frame_str[4:-1])
             mylog("registered:%d, encryption:%d"%(local_module.registered, local_module.encryption))
 
         if ui_ack_cb is not None :
@@ -1012,24 +1070,30 @@ class Lmp(LmpSerial):
 
 
     def opcode_ack_register(self,ui_ack_cb,frame_str):
-        data_len, event, status = unpack('<BHB', frame_str[:4])
+        data_len = frame_str[0]
+        event = array_to_u16(frame_str[1:])
+        status = frame_str[3]
         if status == LMP_ERR_SUCCESS:
             if ui_ack_cb is not None :
                 ui_ack_cb(status)
 
     def opcode_ack_local_unregister(self,ui_ack_cb,frame_str):
-        data_len, event, status = unpack('<BHB', frame_str[:4])
+        data_len = frame_str[0]
+        event = array_to_u16(frame_str[1:])
+        status = frame_str[3]
         mylog("SERIAL_CMD_LOCAL_UNREGISTER ack status=%s (%d)"%(serial_errors_str_dict.get(status),status))
         if status == LMP_ERR_SUCCESS:
             if ui_ack_cb is not None :
                 ui_ack_cb(status)
 
     def opcode_ack_local_crypt_nonce_get(self,ui_ack_cb,frame_str):
-        dlen, event, status = unpack('<BHB', frame_str[:4])
+        data_len = frame_str[0]
+        event = array_to_u16(frame_str[1:])
+        status = frame_str[3]
         #print dlen, event, status
         if status == LMP_ERR_SUCCESS:
             local_module = self.local_module()
-            local_module.crypt_nonce = frame_str[4:dlen+1]
+            local_module.crypt_nonce = frame_str[4:data_len+1]
             if ui_ack_cb is not None :
                 ui_ack_cb(status)
             if self.on_local_module_update_cb :
@@ -1037,11 +1101,13 @@ class Lmp(LmpSerial):
 
     def opcode_ack_local_crypt_key0_get(self,ui_ack_cb,frame_str):
         #TODO to merge with  opcode_ack_local_crypt_key1_get and add key_index in ack msg.
-        dlen, event, status = unpack('<BHB', frame_str[:4])
+        data_len = frame_str[0]
+        event = array_to_u16(frame_str[1:])
+        status = frame_str[3]
         #print dlen, event, status
         if status == LMP_ERR_SUCCESS:
             local_module = self.local_module()
-            local_module.crypt_key0 = frame_str[4:dlen+1]
+            local_module.crypt_key0 = frame_str[4:data_len+1]
             if ui_ack_cb is not None :
                 ui_ack_cb(status)
             if self.on_local_module_update_cb :
@@ -1050,60 +1116,76 @@ class Lmp(LmpSerial):
 
     def opcode_ack_local_crypt_key1_get(self,ui_ack_cb,frame_str):
         #TODO to merge with  opcode_ack_local_crypt_key1_get and add key_index in ack msg.
-        dlen, event, status = unpack('<BHB', frame_str[:4])
+        data_len = frame_str[0]
+        event = array_to_u16(frame_str[1:])
+        status = frame_str[3]
         #print dlen, event, status
         if status == LMP_ERR_SUCCESS:
             local_module = self.local_module()
-            local_module.crypt_key1 = frame_str[4:dlen+1]
+            local_module.crypt_key1 = frame_str[4:data_len+1]
             if ui_ack_cb is not None :
                 ui_ack_cb(status)
             if self.on_local_module_update_cb :
                 self.on_local_module_update_cb( local_module )
 
     def opcode_ack_module_property_get(self,ui_ack_cb,frame_str):
-        dlen, event, status = unpack('<BHB', frame_str[:4])
+        data_len = frame_str[0]
+        event = array_to_u16(frame_str[1:])
+        status = frame_str[3]
         mylog("SERIAL_CMD_LOCAL_MODULE_PROPERTY_GET ack status=%s (%d)"%(serial_errors_str_dict.get(status),status))
         if status == LMP_ERR_SUCCESS:
             if ui_ack_cb is not None :
                 ui_ack_cb(status)
 
     def opcode_ack_module_property_set(self,ui_ack_cb,frame_str):
-        dlen, event, status = unpack('<BHB', frame_str[:4])
+        data_len = frame_str[0]
+        event = array_to_u16(frame_str[1:])
+        status = frame_str[3]
         mylog("SERIAL_CMD_LOCAL_MODULE_PROPERTY_SET ack status=%s (%d)"%(serial_errors_str_dict.get(status),status))
         if status == LMP_ERR_SUCCESS:
             if ui_ack_cb is not None :
                 ui_ack_cb(status)
 
     def opcode_ack_module_property_delete(self,ui_ack_cb,frame_str):
-        dlen, event, status = unpack('<BHB', frame_str[:4])
+        data_len = frame_str[0]
+        event = array_to_u16(frame_str[1:])
+        status = frame_str[3]
         mylog("SERIAL_CMD_LOCAL_MODULE_PROPERTY_DELETE ack status=%s%d"%(serial_errors_str_dict.get(status),status))
         if status == LMP_ERR_SUCCESS:
             if ui_ack_cb is not None :
                 ui_ack_cb(status)
 
     def opcode_ack_device_property_get(self,ui_ack_cb,frame_str):
-        dlen, event, status = unpack('<BHB', frame_str[:4])
+        data_len = frame_str[0]
+        event = array_to_u16(frame_str[1:])
+        status = frame_str[3]
         mylog("SERIAL_CMD_LOCAL_DEVICE_PROPERTY_GET ack status=%s (%d)"%(serial_errors_str_dict.get(status),status))
         if status == LMP_ERR_SUCCESS:
             if ui_ack_cb is not None :
                 ui_ack_cb(status)
 
     def opcode_ack_device_property_set(self,ui_ack_cb,frame_str):
-        dlen, event, status = unpack('<BHB', frame_str[:4])
+        data_len = frame_str[0]
+        event = array_to_u16(frame_str[1:])
+        status = frame_str[3]
         mylog("SERIAL_CMD_LOCAL_DEVICE_PROPERTY_SET ack status=%s (%d)"%(serial_errors_str_dict.get(status),status))
         if status == LMP_ERR_SUCCESS:
             if ui_ack_cb is not None :
                 ui_ack_cb(status)
 
     def opcode_ack_device_property_delete(self,ui_ack_cb,frame_str):
-        dlen, event, status = unpack('<BHB', frame_str[:4])
+        data_len = frame_str[0]
+        event = array_to_u16(frame_str[1:])
+        status = frame_str[3]
         mylog("SERIAL_CMD_LOCAL_DEVICE_PROPERTY_DELETE ack status=%s%d"%(serial_errors_str_dict.get(status),status))
         if status == LMP_ERR_SUCCESS:
             if ui_ack_cb is not None :
                 ui_ack_cb(status)
 
     def opcode_ack_central_connect(self,ui_ack_cb,frame_str):
-        data_len, event, status = unpack('<BHB', frame_str[:4])
+        data_len = frame_str[0]
+        event = array_to_u16(frame_str[1:])
+        status = frame_str[3]
         mylog("SERIAL_CMD_CENTRAL_CONNECT ack status=%s (%d)"%(serial_errors_str_dict.get(status),status))
         if status == LMP_ERR_SUCCESS:
             if ui_ack_cb is not None :
@@ -1112,14 +1194,18 @@ class Lmp(LmpSerial):
             self.response.status = status
 
     def opcode_ack_central_disconnect(self,ui_ack_cb,frame_str):
-        data_len, event, status = unpack('<BHB', frame_str[:4])
+        data_len = frame_str[0]
+        event = array_to_u16(frame_str[1:])
+        status = frame_str[3]
         mylog("SERIAL_CMD_CENTRAL_DISCONNECT ack status=%s (%d)"%(serial_errors_str_dict.get(status),status))
         if status == LMP_ERR_SUCCESS:
             if ui_ack_cb is not None :
                 ui_ack_cb(status)
 
     def opcode_ack_local_lms_send(self,ui_ack_cb,frame_str):
-        data_len, event, status = unpack('<BHB', frame_str[:4])
+        data_len = frame_str[0]
+        event = array_to_u16(frame_str[1:])
+        status = frame_str[3]
         payload = None
         if status == LMP_ERR_SUCCESS:
             payload = frame_str[4:-1]

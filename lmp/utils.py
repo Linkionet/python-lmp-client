@@ -71,13 +71,24 @@ def val_to_hexstr(val):
 
 def u8_to_array(val):
     lval=[val]
-    data = map(ord,pack("<B",*lval))
-    return data
+    #data = map(ord,pack("<B",*lval))
+    #return data
+    r = []
+    for i in pack("<B",*lval):
+        r.append(i)
+    return r
+
 
 def u16_to_array(val):
     lval=[val]
-    data = map(ord,pack("<H",*lval))
-    return data
+    data = pack("<H",*lval)
+    r = []
+    for i in data:
+        #print(i)
+        r.append(i)
+    #data = map(ord,pack("<H",*lval))
+    #print(r)
+    return r
 
 def u32_to_array(val):
     lval=[val]
@@ -96,3 +107,28 @@ def mac_to_array(mac):
     st = mac.split(":")
     lmac = [int(hex,16) for hex in st]
     return lmac[::-1] # reverse array as expected for mac parameter
+
+def array_to_u16(array):
+    """ little endian style
+    """
+    return (array[0] + array[1]*256)
+
+def array_to_str(array):
+    na = []
+    for e in array:
+        if e != 0:
+            na.append(e)
+        else :
+            break
+    return ''.join(chr(e) for e in na)
+
+def array_to_signed(val):
+    if val<127:
+        return val
+    else :
+        return val-255
+
+def array_to_u32(array):
+    """ little endian style
+    """
+    return ( array[0] + array[1]*256  + array[2]*256*256  + array[3]*256*256*256 )

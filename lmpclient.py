@@ -27,11 +27,12 @@ try:
     # python 2.x
     #import Tkinter as tk
     from Tkinter import *
+    from tkMessageBox import *
 except ImportError:
     # python 3.x
     #import tkinter as tk
     from tkinter import *
-from tkMessageBox import *
+    from tkinter.messagebox import *
 
 #from ui.scroll import *
 from ui.log import *
@@ -89,7 +90,7 @@ class LocalModuleFrame() :
         self.pName = Param(self.fLocalConfig,"Name",TOP,10,"")
         self.pSWVersion = Param(self.fLocalConfig,"SW version",TOP,16,"")
         self.pHWVersion = Param(self.fLocalConfig,"HW version",TOP,16,"")
-        self.pType = Param(self.fLocalConfig,"Type",TOP,20,"")
+        self.pType = Param(self.fLocalConfig,"Type",TOP,32,"")
         self.pRole = Param(self.fLocalConfig,"Role",TOP,8,"")
         self.pMsg = Param(self.fLocalConfig,"Last message",TOP,32,"")
 
@@ -639,7 +640,7 @@ if __name__ == "__main__":
                         help='serial device')
 
     presults = parser.parse_args()
-    print 'serial_device =', presults.serial_device
+    print("serial_device = %s"% presults.serial_device)
     # init serial port
 
     root = Tk()
