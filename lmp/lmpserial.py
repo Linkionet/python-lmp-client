@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-    Copyright (c) 2016-2018 - Linkio SAS. All Rights Reserved.
+    Copyright (c) 2016-2019 - Linkio SAS. All Rights Reserved.
 
     All information contained herein is, and remains the property of
     Linkio SAS.
@@ -24,7 +24,6 @@ import serial
 import time
 import binascii
 import threading
-import numpy
 import colorsys
 import traceback
 from struct import *
@@ -53,16 +52,14 @@ def mylog(string):
 av_rssi = []
 av_mean_size = 20
 
-def average_rssi(rssi):
-    global av_rssi
-    av_rssi.append(rssi)
-    #print av_rssi
-    if (len(av_rssi)>=av_mean_size):
-        av_rssi = av_rssi[1:av_mean_size]
-    #print av_rssi
-    res = sum(av_rssi) / float(len(av_rssi))
-    #print numpy.mean(av_rssi), numpy.std(av_rssi)
-    return numpy.mean(av_rssi), numpy.std(av_rssi)
+# def average_rssi(rssi):
+#     import numpy
+#     global av_rssi
+#     av_rssi.append(rssi)
+#     if (len(av_rssi)>=av_mean_size):
+#         av_rssi = av_rssi[1:av_mean_size]
+#     res = sum(av_rssi) / float(len(av_rssi))
+#     return numpy.mean(av_rssi), numpy.std(av_rssi)
 
 class ItQueue():
     def __init__(self,opcode,payload,serial_ack_cb,ui_ack_cb):
@@ -206,7 +203,6 @@ class LmpSerial(threading.Thread):
             i = 0
             #print("DEBUG: len rcv=" + "%d"%len(rcv))
             if len(rcv)>1:
-                #print("DEBUG: len(rcv) =%d\n"%len(rcv))
                 while i < len(rcv):
                     self.parse_buffer(rcv[i])
                     i += 1
@@ -616,9 +612,8 @@ class LmpSerial(threading.Thread):
 
                 elif lmp_command == LMP_PARAM_RSSI :
                     rssi = array_to_signed(frame_str[2])
-                    #print "Rssi = %d"%(rssi)
-                    mean,std = average_rssi(rssi)
-                    mylog( "Rssi = %d (average = %2.1f, std = %2.1f)"%(rssi,mean,std))
+                    #mean,std = average_rssi(rssi)
+                    #mylog( "Rssi = %d (average = %2.1f, std = %2.1f)"%(rssi,mean,std))
                     module.rssi = rssi
 
                 elif lmp_command == LMP_PARAM_ROLE :
