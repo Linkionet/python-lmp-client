@@ -7,8 +7,12 @@ This interface written in Python-Tk provides some way to :
 - control any other Linkio BLE modules or compatible products within the MESH network.
 
 ## Prerequisites
-- a Linux PC or Raspberry with serial port
-- Python 2.7
+- a Linux PC, Raspberry (Raspbian) or  Windows10 with serial port
+- Python 3
+
+## Dependancies
+- pyserial
+- tkinter
 
 ## Preparation
 - connect your Linkio dongle (see the complete list of compatible products below),
@@ -17,10 +21,15 @@ This interface written in Python-Tk provides some way to :
     - https://itunes.apple.com/FR/app/id1280853273
 
 
-- run the GUI in a terminal :
+- On linux run the GUI in a terminal :
 ```
-./lmpclient.py
+./lmpclient.py -D /dev/ttyUSB0
 ```
+- On windows run the GUI in a DOS console :
+```
+python lmpclient.py -D COM3
+```
+
 - build up your MESH network with the App by registering all the products including your dongle. The products should appears in the `Remote modules` list.
 
 ## Usage
