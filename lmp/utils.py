@@ -34,7 +34,8 @@ def timestamp_str_hour( timestamp ):
     return time.strftime("%H:%M:%S",time.localtime(timestamp))
 
 def debughex(frame_str):
-    larray = [c.encode("hex") for c in frame_str]
+    #larray = [c.encode("hex") for c in frame_str]
+    larray = ["%02X"%(c) for c in frame_str]
     sarray = ' '.join(larray)
     return "[%d]=%s"%(len(frame_str),sarray)
 
