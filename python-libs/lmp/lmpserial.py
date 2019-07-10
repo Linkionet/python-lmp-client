@@ -815,6 +815,9 @@ class Lmp(LmpSerial):
     def command_local_config_data_get(self):
         self.cmd_add(SERIAL_CMD_LOCAL_CONFIG_DATA_GET,[],self.opcode_ack_local_config_data_get,None)
 
+    def command_local_role_set(self, role, timeout, permanent):
+        self.cmd_add(SERIAL_CMD_LOCAL_ROLE_SET,[role, timeout, permanent],None,None)
+
     def command_local_reset(self):
         self.cmd_add(SERIAL_CMD_LOCAL_RESET,[],None,None)
 
@@ -867,8 +870,8 @@ class Lmp(LmpSerial):
         payload = [1] + string_to_array(data)
         self.cmd_add(SERIAL_CMD_LOCAL_CRYPT_AUTHKEY_SET,payload,None,None)
 
-    def command_local_unregister(self):
-        self.cmd_add(SERIAL_CMD_LOCAL_UNREGISTER,[],self.opcode_ack_local_unregister,None)
+    def command_local_unregister(callback_fct):
+        self.cmd_add(SERIAL_CMD_LOCAL_UNREGISTER,[],self.opcode_ack_local_unregister,callback_fct)
         self.command_local_registration_get(None)
 
     def command_network_discover(self):
@@ -902,22 +905,36 @@ class Lmp(LmpSerial):
     def command_local_device_property_delete(self,device_id,property_id,callback_fct):
         self.cmd_add(SERIAL_CMD_LOCAL_DEVICE_PROPERTY_DELETE,[device_id,property_id],self.opcode_ack_device_property_delete,None)
 
-    def command_lmp_device_data_set(self,module_uid,device_id,device_data):
-        """ TODO implement instead SERIAL_CMD_LMP_DEVICE_DATA_SET """
+    def command_remote_role_set(self,module_uid, role, timeout, permanent):
+        module = self.module_get(module_uid)
+        if module :
+            dest_addr = module.lmp_addr
+            d_addr = u16_to_array(dest_addr)
+            data = d_addr + [role, timeout, permanent]
+            self.cmd_add(SERIAL_CMD_REMOTE_ROLE_SET,data,None,None)
 
+    def command_remote_device_data_set(self,module_uid,device_id,device_data):
         module = self.module_get(module_uid)
         if module :
             module.data = device_data
             dest_addr = module.lmp_addr
             d_addr = u16_to_array(dest_addr)
-            lmp_msg = []
-            lmp_msg.append(2+len(device_data))
-            lmp_msg.append(LMP_COMMAND_DEVICE_DATA_SET)
-            lmp_msg.append(device_id)
-            lmp_msg += device_data
+            # lmp_msg = []
+            # lmp_msg.append(2+len(device_data))
+            # lmp_msg.append(LMP_COMMAND_DEVICE_DATA_SET)
+            # lmp_msg.append(device_id)
+            # lmp_msg += device_data
+            #
+            # data = d_addr + lmp_msg
+            # self.cmd_add(SERIAL_CMD_LOCAL_LMP_SEND,data,None,None)
 
-            data = d_addr + lmp_msg
-            self.cmd_add(SERIAL_CMD_LOCAL_LMP_SEND,data,None,None)
+            data = d_addr + [device_id,LMP_PACKET_TYPE_CMD_NOACK] + device_data
+            self.cmd_add(SERIAL_CMD_REMOTE_DEVICE_DATA_SET,data,None,None)
+
+    def command_remote_group_data_set(self,group_addr,group_class,device_data):
+        d_addr = u16_to_array(group_addr)
+        data = d_addr + [group_class,LMP_PACKET_TYPE_CMD_NOACK] + device_data
+        self.cmd_add(SERIAL_CMD_REMOTE_GROUP_DATA_SET,data,None,None)
 
     def central_connect(self,mac_address,on_connected_cb, on_disconnected_cb) :
         mylog("Connect req to %s"%(mac_address))

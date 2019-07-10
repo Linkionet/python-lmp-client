@@ -28,12 +28,14 @@ sys.path.append(libpath)
 
 from lmp.lmpserial import LmpSerial, Lmp
 from lmp.utils import debughex
+from lmp.utils import string_to_array
 import time
 import logging
 
 quit_req = False
 mqtt_client = None
 local_module = None
+remote_modules = []
 
 def on_registered(updated_module):
     logging.debug("module %s registered"%(updated_module.uid))
@@ -42,6 +44,10 @@ def on_unregistered(updated_module):
     logging.debug("module %s unregistered"%(updated_module.uid))
 
 def on_remote_module_update(updated_module):
+    global remote_modules
+    if updated_module.uid not in remote_modules:
+        remote_modules.append( updated_module.uid)
+
     logging.debug("module %s update"%(updated_module.uid))
 
 def on_device_data_event(module, device, frame):
@@ -70,6 +76,8 @@ def on_init_complete(status):
     logging.debug("\tmanufacturer = '%s'"%(local_module.manufacturer))
     logging.debug("\tmodel = '%s'"%(local_module.model))
     logging.debug("\tname = '%s'"%(local_module.name))
+
+    client_lmp.command_remote_module_info()
 
 def on_local_module_update(local_module):
 
@@ -138,7 +146,23 @@ if __name__ == "__main__":
     client_lmp.on_local_debug_ind(on_local_debug_update)
 
 
+    #global remote_modules
 
     stop = False
+    onoff = 0
+    actions = ["0","1"]
     while (stop == False):
-        time.sleep(1)
+        time.sleep(5)
+        # build light data (toggle on off) for detected modules
+        for module_uid in remote_modules:
+            hexdata = "1" # Mode
+            hexdata = hexdata + actions[onoff] # Action : toggle
+            hexdata = hexdata + "63" # Value
+            hexdata = hexdata + "0000" # Hue
+            hexdata = hexdata + "63" # Saturation
+            hexdata = hexdata + "0100" # param/time
+            hexdata = hexdata + "00" # White
+            device_data = string_to_array(hexdata)
+            # write on device 0
+            client_lmp.command_remote_device_data_set(module_uid,0,device_data)
+        onoff = 1 - onoff

@@ -20,6 +20,11 @@ __version__     = "1.0.0"
 __status__      = "Development"
 
 import argparse
+import os,sys
+
+root_dir = os.path.dirname(os.path.abspath(__file__))
+libpath = os.path.join(root_dir, 'python-libs')
+sys.path.append(libpath)
 
 from lmp.lmpserial import *
 
@@ -332,7 +337,7 @@ class DeviceEdit(DeviceFrame):
         hexdata = hexdata+self.pLevel.get_hexstr8()+self.pHue.get_hexstr16()+self.pSaturation.get_hexstr8()
         hexdata = hexdata+self.pParam.get_hexstr16()
         device_data = string_to_array(hexdata)
-        client_lmp.command_lmp_device_data_set(self.module_uid,self.device_id,device_data)
+        client_lmp.command_remote_device_data_set(self.module_uid,self.device_id,device_data)
 
     def param_device_color_dimmable_light(self,widget):
         self.pAction = Param(widget,"OnOff [0,1]",TOP,1,"1")
@@ -350,7 +355,7 @@ class DeviceEdit(DeviceFrame):
         hexdata = hexdata+self.pLevel.get_hexstr8()+self.pHue.get_hexstr16()+self.pSaturation.get_hexstr8()
         hexdata = hexdata+self.pParam.get_hexstr16()+self.pWhite.get_hexstr8()
         device_data = string_to_array(hexdata)
-        client_lmp.command_lmp_device_data_set(self.module_uid,self.device_id,device_data)
+        client_lmp.command_remote_device_data_set(self.module_uid,self.device_id,device_data)
 
     def param_device_color_white_dimmable_light(self,widget):
         self.pAction = Param(widget,"OnOff [0,1]",TOP,1,"1")
@@ -367,7 +372,7 @@ class DeviceEdit(DeviceFrame):
     def send_device_unknown(self):
         ui_log.debug("UI","send")
         device_data = string_to_array(self.pData.get())
-        client_lmp.command_lmp_device_data_set(self.module_uid,self.device_id,device_data)
+        client_lmp.command_remote_device_data_set(self.module_uid,self.device_id,device_data)
 
     def param_device_unknown(self,widget):
         #self.pData = Param(widget,"Data",TOP,40,"")
@@ -384,7 +389,10 @@ class DeviceEdit(DeviceFrame):
     def data_update_device_binary_sensor(self,data):
         # parse binary_sensor data
         ui_log.debug("UI","data_update_device_binary_sensor %s"%(binstr_to_hexstr(data)))
-        timestamp,status,value = unpack('<IBB', data)
+        #timestamp,status,value = unpack('<IBB', data)
+        timestamp = array_to_u32(data[0:])
+        status = data[4]
+        value = data[5]
         ui_log.debug("UI","=> at %d status=%d, value=%d"%(timestamp,status,value))
         data_str = "%s input=%d"%(timestamp_str_hour(timestamp),value)
         self.pData.set(data_str)
@@ -392,7 +400,10 @@ class DeviceEdit(DeviceFrame):
     def data_update_device_analog_sensor(self,data):
         # parse analog_sensor data
         ui_log.debug("UI","data_update_device_analog_sensor %s"%(binstr_to_hexstr(data)))
-        timestamp,status,value = unpack('<IBI', data)
+        #timestamp,status,value = unpack('<IBI', data)
+        timestamp = array_to_u32(data[0:])
+        status = data[4]
+        value = array_to_u32(data[5:])
         ui_log.debug("UI","=> at %d status=%d, value=%d"%(timestamp,status,value))
         data_str = "%s analog=%d"%(timestamp_str_hour(timestamp),value)
         self.pData.set(data_str)
@@ -408,7 +419,10 @@ class DeviceEdit(DeviceFrame):
     def data_update_device_binary_output(self,data):
         # parse binary_output data
         ui_log.debug("UI","data_update_device_binary_output %s"%(binstr_to_hexstr(data)))
-        timestamp,status,value = unpack('<IBB', data)
+        #timestamp,status,value = unpack('<IBB', data)
+        timestamp = array_to_u32(data[0:])
+        status = data[4]
+        value = array_to_u32(data[5:])
         ui_log.debug("UI","=> at %d status=%d, value=%d"%(timestamp,status,value))
         data_str = "%s output=%d"%(timestamp_str_hour(timestamp),value)
         self.pData.set(data_str)
@@ -416,7 +430,7 @@ class DeviceEdit(DeviceFrame):
     def send_device_binary_output(self):
         hexdata = self.pAction.get_hexstr8()
         device_data = string_to_array(hexdata)
-        client_lmp.command_lmp_device_data_set(self.module_uid,self.device_id,device_data)
+        client_lmp.command_remote_device_data_set(self.module_uid,self.device_id,device_data)
 
     def param_device_binary_output(self,widget):
         self.pAction = Param(widget,"OnOff [0,1]",TOP,1,"1")
@@ -424,7 +438,10 @@ class DeviceEdit(DeviceFrame):
     def data_update_device_level_output(self,data):
         # parse level_output data
         ui_log.debug("UI","data_update_device_level_output %s"%(binstr_to_hexstr(data)))
-        timestamp,status,value = unpack('<IBB', data)
+        #timestamp,status,value = unpack('<IBB', data)
+        timestamp = array_to_u32(data[0:])
+        status = data[4]
+        value = data[5]
         ui_log.debug("UI","=> at %d status=%d, value=%d"%(timestamp,status,value))
         data_str = "%s output=%d"%(timestamp_str_hour(timestamp),value)
         self.pData.set(data_str)
@@ -433,12 +450,12 @@ class DeviceEdit(DeviceFrame):
         hexdata = self.pAction.get_hexstr8()
         hexdata = hexdata+self.pLevel.get_hexstr8()
         device_data = string_to_array(hexdata)
-        client_lmp.command_lmp_device_data_set(self.module_uid,self.device_id,device_data)
+        client_lmp.command_remote_device_data_set(self.module_uid,self.device_id,device_data)
 
     def send_device_serial(self):
         ui_log.debug("UI","send")
         device_data = string_to_array(self.pDataToSend.get())
-        client_lmp.command_lmp_device_data_set(self.module_uid,self.device_id,device_data)
+        client_lmp.command_remote_device_data_set(self.module_uid,self.device_id,device_data)
 
     def param_device_level_output(self,widget):
         self.pAction = Param(widget,"OnOff [0,1]",TOP,1,"1")
@@ -525,7 +542,8 @@ def on_unregistered(updated_module):
     ui_log.debug("UI","module %s unregistered"%(updated_module.uid))
 
 def on_module_update(updated_module):
-    ui_log.debug("UI","module %s update"%(updated_module.uid))
+    ui_log.debug("UI","module %s update:role %s,RSSI %d dBm, Batt %s"
+        %(updated_module.uid,updated_module.role_str(),updated_module.rssi,updated_module.battery_str()))
     # clean frame...
     #for widget in fRemote.winfo_children():
     #    widget.destroy()
@@ -571,7 +589,6 @@ def on_host_msg_update(frame):
 
 def on_local_debug_update(level,log):
     ui_log.debug("UI","Debug[%d] %s"%(level,log))
-
 
 def on_app_ready() :
     """ Build the main page. Get the current mode first. """
