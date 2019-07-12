@@ -31,6 +31,7 @@ from lmp.utils import debughex
 from lmp.utils import string_to_array
 import time
 import logging
+import lmp.devices as dev
 
 quit_req = False
 mqtt_client = None
@@ -105,6 +106,31 @@ def on_local_debug_update(level,log):
     logging.debug("Debug[%d] %s"%(level,log))
 
 
+def light_command_broadcast(action):
+        hexdata = "1" # Mode
+        hexdata = hexdata + action # Action
+        hexdata = hexdata + "63" # Value
+        hexdata = hexdata + "0000" # Hue
+        hexdata = hexdata + "63" # Saturation
+        hexdata = hexdata + "0100" # param/time
+        hexdata = hexdata + "00" # White
+        group_data = string_to_array(hexdata)
+        # write on device 0
+        client_lmp.command_remote_group_data_set(0xffff,dev.DEVICE_CLASS_COLOR_WHITE_DIMMABLE_LIGHT,group_data)
+
+def light_command_unicast(action):
+    for module_uid in remote_modules:
+        hexdata = "1" # Mode
+        hexdata = hexdata + action # Action
+        hexdata = hexdata + "63" # Value
+        hexdata = hexdata + "0000" # Hue
+        hexdata = hexdata + "63" # Saturation
+        hexdata = hexdata + "0100" # param/time
+        hexdata = hexdata + "00" # White
+        device_data = string_to_array(hexdata)
+        # write on device 0
+        client_lmp.command_remote_device_data_set(module_uid,0,device_data)
+
 if __name__ == "__main__":
     """
     if permission error when start, use
@@ -148,21 +174,13 @@ if __name__ == "__main__":
 
     #global remote_modules
 
+
     stop = False
     onoff = 0
     actions = ["0","1"]
     while (stop == False):
         time.sleep(5)
         # build light data (toggle on off) for detected modules
-        for module_uid in remote_modules:
-            hexdata = "1" # Mode
-            hexdata = hexdata + actions[onoff] # Action : toggle
-            hexdata = hexdata + "63" # Value
-            hexdata = hexdata + "0000" # Hue
-            hexdata = hexdata + "63" # Saturation
-            hexdata = hexdata + "0100" # param/time
-            hexdata = hexdata + "00" # White
-            device_data = string_to_array(hexdata)
-            # write on device 0
-            client_lmp.command_remote_device_data_set(module_uid,0,device_data)
+        light_command_broadcast(actions[onoff])
+        #light_command_unicast(actions[onoff])
         onoff = 1 - onoff

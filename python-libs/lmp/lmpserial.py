@@ -870,8 +870,8 @@ class Lmp(LmpSerial):
         payload = [1] + string_to_array(data)
         self.cmd_add(SERIAL_CMD_LOCAL_CRYPT_AUTHKEY_SET,payload,None,None)
 
-    def command_local_unregister(callback_fct):
-        self.cmd_add(SERIAL_CMD_LOCAL_UNREGISTER,[],self.opcode_ack_local_unregister,callback_fct)
+    def command_local_unregister(self):
+        self.cmd_add(SERIAL_CMD_LOCAL_UNREGISTER,[],self.opcode_ack_local_unregister,None)
         self.command_local_registration_get(None)
 
     def command_network_discover(self):
@@ -935,6 +935,7 @@ class Lmp(LmpSerial):
         d_addr = u16_to_array(group_addr)
         data = d_addr + [group_class,LMP_PACKET_TYPE_CMD_NOACK] + device_data
         self.cmd_add(SERIAL_CMD_REMOTE_GROUP_DATA_SET,data,None,None)
+        mylog("command_remote_group_data_set %s"%(data))
 
     def central_connect(self,mac_address,on_connected_cb, on_disconnected_cb) :
         mylog("Connect req to %s"%(mac_address))
